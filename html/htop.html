@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Web htop Engine</title>
+    <script src="tailwind.js"></script>
+    <script src="nav-drawer.js" defer></script>
+    <style>
+        .terminal-font { font-family: 'Courier New', Courier, monospace; }
+        .clickable-header { cursor: pointer; user-select: none; }
+        .clickable-header:hover { background-color: #065f46; color: white; }
+    </style>
+</head>
+<body class="bg-black text-emerald-400 p-4 terminal-font text-sm tracking-tight select-none">
+    <nav-drawer></nav-drawer>
+
+    <div class="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-zinc-800 pb-2 mb-4 gap-2">
+        <div>
+            <span class="bg-emerald-600 text-black px-2 py-0.5 font-bold mr-2 rounded-sm">web-htop</span>
+            <span class="text-white font-bold tracking-wider uppercase text-xs md:text-sm">Console Performance Engine</span>
+        </div>
+        <div class="text-zinc-500 text-xs">
+            Uptime: <span id="uptime-text" class="text-cyan-400 font-bold">-</span>
+        </div>
+    </div>
+
+    <div class="mb-4 flex flex-wrap items-center gap-3 bg-zinc-950 p-2 border border-zinc-800 rounded">
+        <div class="flex items-center gap-2">
+            <span class="text-zinc-500 font-bold text-xs uppercase">Refresh Rate:</span>
+            <select id="interval-select" onchange="handleIntervalChange()" class="bg-black border border-zinc-700 px-2 py-0.5 text-white font-mono text-xs rounded focus:outline-none focus:border-emerald-500 cursor-pointer">
+                <option value="1000" selected>1s</option>
+                <option value="5000">5s</option>
+                <option value="10000">10s</option>
+                <option value="30000">30s</option>
+                <option value="custom">User-defined</option>
+            </select>
+        </div>
+        
+        <div id="custom-interval-container" class="hidden flex items-center gap-2">
+            <span class="text-zinc-500 text-xs">Ms:</span>
+            <input 
+                type="number" 
+                id="custom-interval-input" 
+                placeholder="e.g. 2000" 
+                min="100"
+                class="w-20 bg-black border border-zinc-700 px-2 py-0.5 text-white font-mono text-xs rounded focus:outline-none focus:border-emerald-500"
+            />
+            <button onclick="applyCustomInterval()" class="px-2 py-0.5 bg-emerald-800 text-black font-bold text-xs rounded hover:bg-emerald-700 transition-colors">
+                Apply
+            </button>
+        </div>
+        <span id="api-status" class="text-xs transition-opacity duration-300 opacity-0"></span>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 border-b border-zinc-800 pb-4 mb-4">
+        <div>
+            <div class="text-zinc-500 text-xs mb-2 flex items-center gap-2">
+                <span>Sort Cores:</span>
+                <button onclick="toggleCpuSort('id')" id="cpu-btn-id" class="px-1 bg-zinc-900 border border-zinc-700 text-white rounded hover:bg-zinc-800">Core ID ▲</button>
+                <button onclick="toggleCpuSort('load')" id="cpu-btn-load" class="px-1 bg-zinc-900 border border-zinc-800 text-zinc-400 rounded hover:bg-zinc-800">Load</button>
+            </div>
+            <div id="cpu-panel" class="space-y-1"></div>
+        </div>
+
+        <div class="space-y-1">
+            <div class="flex items-center gap-2">
+                <span class="text-white w-12 font-bold">Mem</span>
+                <span class="text-zinc-600">[</span>
+                <div class="flex-1 bg-zinc-900 h-3 overflow-hidden flex rounded-sm border border-zinc-800">
+                    <div id="mem-bar" class="bg-blue-600 h-full" style="width: 0%"></div>
+                </div>
+                <span class="text-zinc-600">]</span>
+                <span id="mem-text" class="text-white text-xs min-w-[120px]">0/0MB</span>
+            </div>
+            
+            <div class="text-zinc-500 text-xs pt-4">
+                Tasks: <span id="tasks-count" class="text-white font-bold">0</span>, <span id="tasks-running" class="text-emerald-400 font-bold">0</span> running <br>
+                Load average: <span id="load-avg" class="text-emerald-300">0.00 0.00 0.00</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="mb-4 flex items-center gap-2 bg-zinc-950 p-2 border border-zinc-800 rounded">
+        <span class="text-zinc-500 font-bold">Filter (Regex):</span>
+        <input 
+            type="text" 
+            id="regex-filter" 
+            placeholder="e.g. gitea|nginx or ^sys" 
+            class="flex-1 bg-black border border-zinc-700 px-2 py-0.5 text-white font-mono text-xs rounded focus:outline-none focus:border-emerald-500"
+            oninput="handleFilterChange()"
+        />
+        <span id="regex-status" class="text-xs text-zinc-600"></span>
+    </div>
+
+    <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+            <thead>
+                <tr class="bg-emerald-800 text-black font-bold text-xs uppercase select-none">
+                    <th class="p-1 px-2 clickable-header" onclick="changeProcessSort('pid')">PID <span id="sort-pid"></span></th>
+                    <th class="p-1 clickable-header" onclick="changeProcessSort('user')">USER <span id="sort-user"></span></th>
+                    <th class="p-1 clickable-header" onclick="changeProcessSort('cpu')">CPU% <span id="sort-cpu">▼</span></th>
+                    <th class="p-1 clickable-header" onclick="changeProcessSort('memory')">MEM% <span id="sort-memory"></span></th>
+                    <th class="p-1 clickable-header" onclick="changeProcessSort('command')">COMMAND <span id="sort-command"></span></th>
+                </tr>
+            </thead>
+            <tbody id="process-rows" class="text-gray-300 font-mono text-xs divide-y divide-zinc-900"></tbody>
+        </table>
+    </div>
+
+    <script>
+        const wsScheme = window.location.protocol === "https:" ? "wss://" : "ws://";
+        const socket = new WebSocket(wsScheme + window.location.host + "/ws/htop");
+
+        const cpuPanel = document.getElementById('cpu-panel');
+        const memBar = document.getElementById('mem-bar');
+        const memText = document.getElementById('mem-text');
+        const processRows = document.getElementById('process-rows');
+        
+        const tasksCount = document.getElementById('tasks-count');
+        const tasksRunning = document.getElementById('tasks-running');
+        const loadAvg = document.getElementById('load-avg');
+        const uptimeText = document.getElementById('uptime-text');
+
+        const regexInput = document.getElementById('regex-filter');
+        const regexStatus = document.getElementById('regex-status');
+
+        const intervalSelect = document.getElementById('interval-select');
+        const customIntervalContainer = document.getElementById('custom-interval-container');
+        const customIntervalInput = document.getElementById('custom-interval-input');
+        const apiStatus = document.getElementById('api-status');
+
+        // --- Sorting & Filtering State Trackers ---
+        let procSortKey = 'cpu';      // default sorting by CPU usage
+        let procSortAsc = false;      // default descending order (highest first)
+        
+        let cpuSortKey = 'id';        // default CPU core order
+        let cpuSortAsc = true;        // default ascending core ID
+
+        let filterRegex = null;
+
+        // Dispatches the newly configured window refresh parameter over standard POST endpoint
+        function sendIntervalUpdate(ms) {
+            fetch('/htop/settings', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ interval: parseInt(ms, 10) })
+            })
+            .then(response => {
+                if(response.ok) {
+                    showStatus("Interval Updated", "text-emerald-500");
+                } else {
+                    showStatus("Update Failed", "text-red-500");
+                }
+            })
+            .catch(error => {
+                console.error("Error setting configuration parameter:", error);
+                showStatus("Network Error", "text-red-500");
+            });
+        }
+
+        // Helper notification handler for UI action visibility
+        function showStatus(text, className) {
+            apiStatus.innerText = text;
+            apiStatus.className = `text-xs font-mono tracking-normal ${className} opacity-100 transition-opacity duration-300`;
+            setTimeout(() => {
+                apiStatus.classList.add('opacity-0');
+            }, 2000);
+        }
+
+        // Monitors primary drop-down updates
+        function handleIntervalChange() {
+            const val = intervalSelect.value;
+            if (val === 'custom') {
+                customIntervalContainer.classList.remove('hidden');
+            } else {
+                customIntervalContainer.classList.add('hidden');
+                sendIntervalUpdate(val);
+            }
+        }
+
+        // Monitors user-submitted custom latency configurations
+        function applyCustomInterval() {
+            const ms = customIntervalInput.value.trim();
+            if (ms && !isNaN(ms) && parseInt(ms, 10) >= 100) {
+                sendIntervalUpdate(ms);
+            } else {
+                alert("Please enter a valid millisecond value (minimum 100ms).");
+            }
+        }
+
+        // Validates and updates the Regex compile target on input change
+        function handleFilterChange() {
+            const query = regexInput.value.trim();
+            if (query === "") {
+                filterRegex = null;
+                regexStatus.innerText = "";
+                regexInput.classList.remove('border-red-500');
+                return;
+            }
+
+            try {
+                filterRegex = new RegExp(query, 'i');
+                regexStatus.innerText = "Valid Pattern";
+                regexStatus.className = "text-xs text-emerald-500";
+                regexInput.classList.remove('border-red-500');
+            } catch (e) {
+                filterRegex = null;
+                regexStatus.innerText = "Invalid Pattern";
+                regexStatus.className = "text-xs text-red-500";
+                regexInput.classList.add('border-red-500');
+            }
+        }
+
+        // Configures Process table sort targets
+        function changeProcessSort(key) {
+            if (procSortKey === key) {
+                procSortAsc = !procSortAsc;
+            } else {
+                procSortKey = key;
+                procSortAsc = (key === 'user' || key === 'command' || key === 'pid');
+            }
+            updateSortIndicators();
+        }
+
+        // Configures CPU core list sorting
+        function toggleCpuSort(key) {
+            if (cpuSortKey === key) {
+                cpuSortAsc = !cpuSortAsc;
+            } else {
+                cpuSortKey = key;
+                cpuSortAsc = true;
+            }
+            
+            const btnId = document.getElementById('cpu-btn-id');
+            const btnLoad = document.getElementById('cpu-btn-load');
+            
+            if (cpuSortKey === 'id') {
+                btnId.className = "px-1 bg-zinc-900 border border-zinc-700 text-white rounded hover:bg-zinc-800";
+                btnId.innerText = "Core ID " + (cpuSortAsc ? "▲" : "▼");
+                btnLoad.className = "px-1 bg-zinc-900 border border-zinc-800 text-zinc-400 rounded hover:bg-zinc-800";
+                btnLoad.innerText = "Load";
+            } else {
+                btnLoad.className = "px-1 bg-zinc-900 border border-zinc-700 text-white rounded hover:bg-zinc-800";
+                btnLoad.innerText = "Load " + (cpuSortAsc ? "▲" : "▼");
+                btnId.className = "px-1 bg-zinc-900 border border-zinc-800 text-zinc-400 rounded hover:bg-zinc-800";
+                btnId.innerText = "Core ID";
+            }
+        }
+
+        // Visual feedback updates on Table columns
+        function updateSortIndicators() {
+            ['pid', 'user', 'cpu', 'memory', 'command'].forEach(k => {
+                const indicator = document.getElementById('sort-' + k);
+                if (procSortKey === k) {
+                    indicator.innerText = procSortAsc ? '▲' : '▼';
+                } else {
+                    indicator.innerText = '';
+                }
+            });
+        }
+
+        // Send baseline runtime refresh interval config immediately during client handshake
+        socket.onopen = function() {
+            sendIntervalUpdate(intervalSelect.value);
+        };
+
+        socket.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+
+            // 1. Process CPU Cores data array mapping
+            let cores = data.cpu_load.map((load, idx) => ({ id: idx + 1, load: load }));
+            
+            // Sort CPU Cores live payload
+            cores.sort((a, b) => {
+                let valA = a[cpuSortKey];
+                let valB = b[cpuSortKey];
+                return cpuSortAsc ? valA - valB : valB - valA;
+            });
+
+            // Render CPU Panel
+            cpuPanel.innerHTML = '';
+            cores.forEach(core => {
+                cpuPanel.innerHTML += 
+                    '<div class="flex items-center gap-2">' +
+                        '<span class="text-white w-6 font-bold">' + core.id + '</span>' +
+                        '<span class="text-zinc-600">[</span>' +
+                        '<div class="flex-1 bg-zinc-900 h-3 overflow-hidden flex rounded-sm border border-zinc-800">' +
+                            '<div class="bg-emerald-500 h-full" style="width: ' + core.load + '%"></div>' +
+                        '</div>' +
+                        '<span class="text-zinc-600">]</span>' +
+                        '<span class="text-emerald-300 text-xs w-12 text-right">' + core.load.toFixed(1) + '%</span>' +
+                    '</div>';
+            });
+
+            // 2. Render Memory Bars
+            memBar.style.width = data.mem_pct + '%';
+            memText.innerText = data.mem_used + 'M / ' + data.mem_total + 'M (' + data.mem_pct.toFixed(1) + '%)';
+
+            // Render live text statistics
+            tasksCount.innerText = data.total_tasks;
+            tasksRunning.innerText = data.running_tasks;
+            loadAvg.innerText = data.load_1.toFixed(2) + ' ' + data.load_5.toFixed(2) + ' ' + data.load_15.toFixed(2);
+            uptimeText.innerText = data.uptime_str;
+
+            // 3. Filter tasks if a valid regex has been defined
+            let filteredTasks = data.tasks;
+            if (filterRegex) {
+                filteredTasks = data.tasks.filter(task => {
+                    const commandMatch = filterRegex.test(task.command || '');
+                    const userMatch = filterRegex.test(task.user || 'root');
+                    const pidMatch = filterRegex.test(String(task.pid));
+                    return commandMatch || userMatch || pidMatch;
+                });
+            }
+
+            // 4. Process data array evaluation for sorting
+            filteredTasks.sort((a, b) => {
+                let valA = a[procSortKey];
+                let valB = b[procSortKey];
+
+                if (procSortKey === 'user') {
+                    valA = valA || 'root';
+                    valB = valB || 'root';
+                }
+
+                if (typeof valA === 'string') {
+                    return procSortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+                } else {
+                    return procSortAsc ? valA - valB : valB - valA;
+                }
+            });
+            
+            // Render Process Task Rows
+            processRows.innerHTML = '';
+            filteredTasks.forEach(task => {
+                processRows.innerHTML += 
+                    '<tr class="hover:bg-zinc-900/60 font-mono">' +
+                        '<td class="p-1 px-2 text-cyan-400 font-bold">' + task.pid + '</td>' +
+                        '<td class="p-1 text-zinc-400">' + (task.user || 'root') + '</td>' +
+                        '<td class="p-1 text-emerald-400 font-bold">' + task.cpu.toFixed(1) + '</td>' +
+                        '<td class="p-1 text-blue-400">' + task.memory.toFixed(1) + '</td>' +
+                        '<td class="p-1 text-white font-bold">' + task.command + '</td>' +
+                    '</tr>';
+            });
+        };
+
+        socket.onclose = () => {
+            console.log("Kernel metrics synchronization stream lost.");
+        };
+    </script>
+</body>
+</html>

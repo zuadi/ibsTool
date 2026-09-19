@@ -1,2 +1,2 @@
 # ibsTool
-Helpful building automation commisioning tool
+Helpful building automation commissioning tool

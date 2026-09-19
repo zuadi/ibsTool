@@ -1,0 +1,6 @@
+port: COM3
+decodeMode: ""
+baudrate: 9600
+databits: 8
+parity: None
+stopbits: 1

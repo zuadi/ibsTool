@@ -1,0 +1,222 @@
+// package sniffer
+
+// import (
+// 	"encoding/json"
+// 	"fmt"
+// 	"ibsTool/logging"
+// 	"ibsTool/models"
+// 	"log"
+// 	"sort"
+// 	"time"
+
+// 	"github.com/google/gopacket"
+// 	"github.com/google/gopacket/layers"
+// 	"github.com/google/gopacket/pcap"
+
+// 	wsModels "github.com/zuadi/webServer/models"
+// )
+
+// var fcMap = map[byte]string{
+// 	0x01: "Read Coils", 0x02: "Read Discrete Inputs", 0x03: "Read Holding Registers",
+// 	0x04: "Read Input Registers", 0x05: "Write Single Coil", 0x06: "Write Single Register",
+// 	0x0F: "Write Multiple Coils", 0x10: "Write Multiple Registers", 0x17: "Read/Write Multiple Registers",
+// }
+
+// // --- PACKET SNIFFER WORKER ---
+// func StartTCP(ws *wsModels.WSClient, l *logging.Logger) {
+// 	var handle *pcap.Handle
+// 	var err error
+// 	var selectedDevice string
+
+// 	// Find all available devices on the Windows machine
+// 	devices, devErr := pcap.FindAllDevs()
+// 	if l != nil {
+// 		for i, o := range devices {
+// 			l.BroadcastLog(fmt.Sprintf("options %d %s %s", i, o.Description, o.Name))
+// 		}
+// 	}
+// 	if devErr != nil || len(devices) == 0 {
+// 		log.Fatalf("Critical: No active network interfaces found. Ensure Npcap is installed: %v", devErr)
+// 	}
+
+// 	// Loop through devices and prefer the first one that looks like an active network adapter
+// 	// (Avoid loopback adapters or disconnected interfaces if possible)
+// 	for i, device := range devices {
+// 		if i != 8 {
+// 			continue
+// 		}
+// 		// On Windows, devices have long GUID names like \Device\NPF_{...}
+// 		if len(device.Addresses) > 0 {
+// 			selectedDevice = device.Name
+// 			log.Printf("Selected network interface: %s (%s)", device.Description, device.Name)
+// 			break
+// 		}
+// 	}
+
+// 	// Fallback to the absolute first device if no active IP addresses were bound
+// 	if selectedDevice == "" {
+// 		selectedDevice = devices[0].Name
+// 		log.Printf("Fallback: Selected network interface: %s", devices[0].Description)
+// 	}
+
+// 	// Open the live device using the real Npcap interface string name
+// 	handle, err = pcap.OpenLive(selectedDevice, 65536, true, pcap.BlockForever)
+// 	if err != nil {
+// 		log.Fatalf("Failed to open Windows device %s: %v", selectedDevice, err)
+// 	}
+// 	defer handle.Close()
+
+// 	if err := handle.SetBPFFilter("tcp port 502"); err != nil {
+// 		log.Fatalf("BPF Filter Error: %v", err)
+// 	}
+
+// 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
+// 	l.BroadcastLog("⚡ Windows Packet sniffer routing active on port 502...")
+
+// 	for packet := range packetSource.Packets() {
+// 		ipLayer := packet.Layer(layers.LayerTypeIPv4)
+// 		tcpLayer := packet.Layer(layers.LayerTypeTCP)
+// 		if ipLayer == nil || tcpLayer == nil {
+// 			continue
+// 		}
+
+// 		ip, _ := ipLayer.(*layers.IPv4)
+// 		tcp, _ := tcpLayer.(*layers.TCP)
+// 		payload := tcp.Payload
+// 		if len(payload) == 0 {
+// 			continue
+// 		}
+
+// 		statsMutex.Lock()
+// 		for _, b := range payload {
+// 			byteFrequency[b]++
+// 		}
+
+// 		now := time.Now()
+// 		timestamp := now.Format("15:04:05") + fmt.Sprintf(".%03d", now.Nanosecond()/1000000)
+// 		srcIP := ip.SrcIP.String()
+// 		dstIP := ip.DstIP.String()
+
+// 		hexStrings := make([]string, len(payload))
+// 		rawInts := make([]int, len(payload))
+// 		for i, b := range payload {
+// 			hexStrings[i] = fmt.Sprintf("0x%02X", b)
+// 			rawInts[i] = int(b)
+// 		}
+
+// 		frame := models.ModbusFrame{
+// 			Timestamp:   timestamp,
+// 			Source:      srcIP,
+// 			Destination: dstIP,
+// 			Hex:         fmt.Sprintf("%X", payload),
+// 			BytesList:   hexStrings,
+// 			RawInts:     rawInts,
+// 			Latency:     "0.00",
+// 		}
+
+// 		if len(payload) >= 7 {
+// 			transID := uint16(payload[0])<<8 | uint16(payload[1])
+// 			protocolID := uint16(payload[2])<<8 | uint16(payload[3])
+// 			funcCode := payload[7]
+
+// 			if protocolID == 0 {
+// 				pduPayload := payload[7:]
+// 				isRequest := tcp.DstPort == 502
+
+// 				if isRequest {
+// 					globalStats.Requests++
+// 					reqKey := fmt.Sprintf("%s:%s:%d", srcIP, dstIP, transID)
+// 					pendingRequests[reqKey] = now
+
+// 					frame.Type = "REQUEST"
+// 					frame.FC = fmt.Sprintf("0x%02X (%s)", funcCode, fcMap[funcCode])
+// 					if len(pduPayload) > 0 {
+// 						frame.Integers = decodeIntegers(pduPayload)
+// 					}
+// 				} else {
+// 					globalStats.Responses++
+// 					reqKey := fmt.Sprintf("%s:%s:%d", dstIP, srcIP, transID)
+// 					if reqTime, exists := pendingRequests[reqKey]; exists {
+// 						frame.Latency = fmt.Sprintf("%.2f", float64(now.Sub(reqTime).Microseconds())/1000.0)
+// 						delete(pendingRequests, reqKey)
+// 					}
+
+// 					if funcCode >= 0x80 {
+// 						globalStats.Exceptions++
+// 						errCode := byte(0x00)
+// 						if len(payload) > 8 {
+// 							errCode = payload[8]
+// 						}
+// 						frame.Type = "RESPONSE"
+// 						frame.FC = fmt.Sprintf("0x%02X Exception", funcCode-0x80)
+// 						frame.Exception = fmt.Sprintf("0x%02X Error", errCode)
+// 					} else {
+// 						frame.Type = "RESPONSE"
+// 						frame.FC = fmt.Sprintf("0x%02X (%s)", funcCode, fcMap[funcCode])
+// 						if len(pduPayload) > 0 {
+// 							frame.Integers = decodeIntegers(pduPayload)
+// 						}
+// 					}
+// 				}
+
+// 				frameJSON, _ := json.Marshal(frame)
+// 				ws.Broadcast(wsModels.TextMessage, frameJSON)
+// 			}
+// 		}
+
+// 		globalStats.TopBytes = getTopBytes()
+// 		statsJSON, _ := json.Marshal(map[string]any{
+// 			"type":       "stats",
+// 			"requests":   globalStats.Requests,
+// 			"responses":  globalStats.Responses,
+// 			"exceptions": globalStats.Exceptions,
+// 			"top_bytes":  globalStats.TopBytes,
+// 		})
+// 		ws.Broadcast(wsModels.TextMessage, statsJSON)
+
+// 		statsMutex.Unlock()
+// 	}
+// }
+
+// // --- DECODE UTILITIES ---
+// func decodeIntegers(rawPduBytes []byte) []int {
+// 	if len(rawPduBytes) <= 1 {
+// 		return []int{}
+// 	}
+// 	dataBytes := rawPduBytes[1:]
+// 	if len(dataBytes) > 1 && len(dataBytes)%2 != 0 {
+// 		dataBytes = dataBytes[1:]
+// 	}
+
+// 	ints := make([]int, 0, len(dataBytes)/2)
+// 	for i := 0; i < len(dataBytes)-1; i += 2 {
+// 		val := int(dataBytes[i])<<8 | int(dataBytes[i+1])
+// 		ints = append(ints, val)
+// 	}
+// 	return ints
+// }
+
+// func getTopBytes() [][2]float64 {
+// 	type kv struct {
+// 		Key   byte
+// 		Value int
+// 	}
+// 	var ss []kv
+// 	for k, v := range byteFrequency {
+// 		ss = append(ss, kv{k, v})
+// 	}
+// 	sort.Slice(ss, func(i, j int) bool {
+// 		return ss[i].Value > ss[j].Value
+// 	})
+
+// 	limit := 5
+// 	if len(ss) < limit {
+// 		limit = len(ss)
+// 	}
+
+// 	out := make([][2]float64, 0, limit)
+// 	for i := 0; i < limit; i++ {
+// 		out = append(out, [2]float64{float64(ss[i].Key), float64(ss[i].Value)})
+// 	}
+// 	return out
+// }

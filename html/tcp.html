@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Modbus TCP Analyzer (Go Engine)</title>
+    <script src="tailwind.js"></script>
+    <script src="/nav-drawer.js" defer></script>
+</head>
+<body class="bg-gray-950 text-gray-100 font-sans p-6">
+    <nav-drawer></nav-drawer>
+    <div class="max-w-7xl mx-auto">
+        <header class="mb-6 flex justify-between items-center border-b border-gray-800 pb-4">
+            <h1 class="text-2xl font-bold text-emerald-400 font-mono">⚡ Go-MODBUS REALTIME DISSECTOR</h1>
+            <span class="px-3 py-1 bg-emerald-950 text-emerald-400 rounded-full text-xs font-mono border border-emerald-800">GO ENGINE ACTIVE</span>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-gray-900 p-4 rounded-lg border border-gray-800"><p class="text-gray-400 text-sm">Requests</p><p id="stat-req" class="text-2xl font-mono font-bold text-blue-400">0</p></div>
+            <div class="bg-gray-900 p-4 rounded-lg border border-gray-800"><p class="text-gray-400 text-sm">Responses</p><p id="stat-res" class="text-2xl font-mono font-bold text-purple-400">0</p></div>
+            <div class="bg-gray-900 p-4 rounded-lg border border-gray-800"><p class="text-gray-400 text-sm">Exceptions</p><p id="stat-exc" class="text-2xl font-mono font-bold text-rose-500">0</p></div>
+            <div class="bg-gray-900 p-4 rounded-lg border border-gray-800">
+                <p class="text-gray-400 text-sm mb-2">Top Byte Weights</p>
+                <div id="byte-graph" class="space-y-1.5 text-xs font-mono"></div>
+            </div>
+        </div>
+
+        <div class="bg-gray-900 rounded-lg border border-gray-800 p-4 mb-6 shadow-xl">
+            <div class="flex justify-between items-center mb-3">
+                <h2 class="text-sm font-semibold text-gray-400 uppercase tracking-wider font-mono">🔍 Logic Analyzer Stream (Last Capture)</h2>
+                <div id="timeline-meta" class="text-xs font-mono text-gray-500">Waiting for data...</div>
+            </div>
+            
+            <div class="space-y-4 bg-gray-950 p-4 rounded border border-gray-800 overflow-x-auto mb-4">
+                <div class="flex items-center min-w-[800px]">
+                    <div class="w-24 text-xs font-mono font-bold text-pink-400 border-r border-gray-800 pr-2 select-none">MBAP LAYER</div>
+                    <div id="track-mbap" class="flex flex-1 pl-3 gap-1"></div>
+                </div>
+                
+                <div class="flex items-center min-w-[800px]">
+                    <div class="w-24 text-xs font-mono font-bold text-emerald-400 border-r border-gray-800 pr-2 select-none">PDU PAYLOAD</div>
+                    <div id="track-pdu" class="flex flex-1 pl-3 gap-1"></div>
+                </div>
+            </div>
+
+            <div class="bg-gray-950 p-4 rounded border border-gray-800">
+                <div class="flex justify-between items-center text-xs font-mono text-amber-500 mb-2">
+                    <span class="flex items-center gap-2">
+                        <span class="inline-block w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span> 
+                        UART LOGIC WAVEFORM OVERLAY (8N1 FRAME REPRESENTATION)
+                    </span>
+                    <div class="flex gap-4 text-gray-400 text-[11px]">
+                        <div>Baud Rate: <span class="text-sky-400 font-bold">9600 bps</span></div>
+                        <div>Framing: <span class="text-sky-400 font-bold">1 Start, 8 Data, 1 Stop</span></div>
+                    </div>
+                </div>
+                <div class="overflow-x-auto w-full">
+                    <canvas id="serialCanvas" width="1600" height="110" class="bg-black rounded border border-gray-900 w-full"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden shadow-xl">
+            <div class="p-4 bg-gray-900 border-b border-gray-800 font-semibold text-gray-300">Live Traffic Feed</div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-gray-950 text-gray-400 text-xs font-mono border-b border-gray-800">
+                            <th class="p-3">Timestamp</th><th class="p-3">Type</th><th class="p-3">Direction</th>
+                            <th class="p-3">Function</th><th class="p-3">Integers (Decoded)</th><th class="p-3">Latency</th>
+                        </tr>
+                    </thead>
+                    <tbody id="packet-rows" class="divide-y divide-gray-800 font-mono text-xs"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const wsScheme = window.location.protocol === "https:" ? "wss://" : "ws://";
+        const socket = new WebSocket(wsScheme + window.location.host + "/ws");
+        const rows = document.getElementById('packet-rows');
+
+        const canvas = document.getElementById('serialCanvas');
+        const ctx = canvas.getContext('2d');
+        initializeCanvasBlank();
+
+        function initializeCanvasBlank() {
+            ctx.fillStyle = '#09090b';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 1;
+            for(let i=0; i<canvas.width; i+=80) {
+                ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke();
+            }
+            ctx.fillStyle = '#64748b';
+            ctx.font = '11px monospace';
+            ctx.fillText("No current frames captured. Awaiting native Go network stream...", 20, 60);
+        }
+
+        function renderSerialWaveform(intsArray) {
+            if (!intsArray || intsArray.length === 0) return;
+            
+            ctx.fillStyle = '#020617';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 1;
+            for(let i=0; i<canvas.width; i+=100) {
+                ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke();
+            }
+
+            let currentX = 10;
+            const highY = 35;
+            const lowY = 80;
+            const bitWidth = 8;
+
+            ctx.lineWidth = 2.5;
+            ctx.lineJoin = 'miter';
+
+            intsArray.slice(0, 16).forEach((byteValue) => {
+                let frameBits = [];
+                frameBits.push({ val: 0, label: 'START', color: '#f43f5e' });
+                
+                for (let b = 0; b < 8; b++) {
+                    let bit = (byteValue >> b) & 1;
+                    frameBits.push({ val: bit, label: 'D' + b, color: '#38bdf8' });
+                }
+                frameBits.push({ val: 1, label: 'STOP', color: '#10b981' });
+                frameBits.push({ val: 1, label: 'IDLE', color: '#475569' });
+
+                ctx.fillStyle = '#fbbf24';
+                ctx.font = 'bold 10px monospace';
+                ctx.fillText('[0x' + byteValue.toString(16).toUpperCase().padStart(2,'0') + ']', currentX + 4, highY - 18);
+
+                frameBits.forEach((bitObj) => {
+                    let targetY = bitObj.val === 1 ? highY : lowY;
+                    
+                    ctx.strokeStyle = bitObj.color;
+                    ctx.beginPath();
+                    ctx.moveTo(currentX, targetY);
+                    currentX += bitWidth;
+                    ctx.lineTo(currentX, targetY);
+                    ctx.stroke();
+
+                    ctx.strokeStyle = '#334155';
+                    ctx.lineWidth = 0.5;
+                    ctx.beginPath(); ctx.moveTo(currentX, highY); ctx.lineTo(currentX, lowY); ctx.stroke();
+                    ctx.lineWidth = 2.5;
+
+                    if (bitObj.label !== 'IDLE' && bitObj.label !== 'D1' && bitObj.label !== 'D3' && bitObj.label !== 'D5' && bitObj.label !== 'D7') {
+                        ctx.fillStyle = '#64748b';
+                        ctx.font = '8px monospace';
+                        ctx.fillText(bitObj.label, currentX - bitWidth, lowY + 16);
+                    }
+                });
+                currentX += 6;
+            });
+        }
+
+        socket.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+
+            if (data.type === "stats") {
+                document.getElementById('stat-req').innerText = data.requests;
+                document.getElementById('stat-res').innerText = data.responses;
+                document.getElementById('stat-exc').innerText = data.exceptions;
+
+                const graphContainer = document.getElementById('byte-graph');
+                graphContainer.innerHTML = '';
+                if (data.top_bytes && data.top_bytes.length) {
+                    const maxVal = data.top_bytes[0][1];
+                    data.top_bytes.forEach(([byte, freq]) => {
+                        const widthPct = Math.max(5, (freq / maxVal) * 100);
+                        var hexLabel = "0x" + parseInt(byte).toString(16).toUpperCase().padStart(2,'0');
+                        graphContainer.innerHTML += '<div class="flex items-center gap-2"><span class="w-8 text-gray-500 text-[10px]">' + hexLabel + '</span><div class="flex-1 bg-gray-950 rounded h-1.5 overflow-hidden border border-gray-800"><div class="bg-emerald-500 h-full" style="width: ' + widthPct + '%"></div></div></div>';
+                    });
+                }
+                return;
+            }
+
+            const tr = document.createElement('tr');
+            tr.className = "hover:bg-gray-850 transition-colors";
+            
+            const typeBadge = data.type === 'REQUEST' 
+                ? '<span class="text-blue-400 bg-blue-950/50 px-2 py-0.5 rounded border border-blue-900/50">REQ</span>' 
+                : (data.exception ? '<span class="text-rose-400 bg-rose-950/50 px-2 py-0.5 rounded border border-rose-900/50">ERR</span>' : '<span class="text-purple-400 bg-purple-950/50 px-2 py-0.5 rounded border border-purple-900/50">RES</span>');
+                
+            const latencyDisplay = data.type === 'RESPONSE' ? data.latency + ' ms' : '-';
+            
+            let integerString = '<span class="text-gray-600">None</span>';
+            if (data.exception) {
+                integerString = '<span class="text-rose-500 font-bold">Exception ' + data.exception + '</span>';
+            } else if (data.integers && data.integers.length) {
+                integerString = '[' + data.integers.join(', ') + ']';
+            }
+
+            tr.innerHTML = ' <td class="p-3 text-gray-500">' + data.timestamp + '</td><td class="p-3">' + typeBadge + '</td><td class="p-3 text-gray-300">' + data.source + ' -> ' + data.destination + '</td><td class="p-3 text-emerald-400">' + data.fc + '</td><td class="p-3 text-amber-400 font-bold">' + integerString + '</td><td class="p-3 text-gray-400">' + latencyDisplay + '</td> ';
+            rows.insertBefore(tr, rows.firstChild);
+            if(rows.children.length > 50) rows.lastChild.remove();
+
+            document.getElementById('timeline-meta').innerText = data.type + ' | ' + data.source + ' -> ' + data.destination + ' (' + data.bytes_list.length + ' Bytes)';
+            
+            const mbapContainer = document.getElementById('track-mbap');
+            const pduContainer = document.getElementById('track-pdu');
+            mbapContainer.innerHTML = '';
+            pduContainer.innerHTML = '';
+
+            data.bytes_list.forEach((byteValue, index) => {
+                if (index < 7) {
+                    mbapContainer.innerHTML += '<div class="flex flex-col items-center bg-pink-950/40 border border-pink-500/40 text-pink-400 px-3 py-1.5 rounded font-mono text-[11px] font-bold min-w-[55px] shadow-sm"><span class="opacity-40 text-[9px] mb-0.5">B' + index + '</span><span>' + byteValue + '</span></div>';
+                } else {
+                    pduContainer.innerHTML += '<div class="flex flex-col items-center bg-emerald-950/40 border border-emerald-500/40 text-emerald-400 px-3 py-1.5 rounded font-mono text-[11px] font-bold min-w-[55px] shadow-sm"><span class="opacity-40 text-[9px] mb-0.5">B' + index + '</span><span>' + byteValue + '</span></div>';
+                }
+            });
+
+            if (data.raw_ints && data.raw_ints.length > 0) {
+                renderSerialWaveform(data.raw_ints);
+            }
+        };
+    </script>
+</body>
+</html>

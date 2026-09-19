@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modbus RTU Analyzer (Go Engine)</title>
+    <script src="/tailwind.js"></script>
+    <script src="/nav-drawer.js" defer></script>
+</head>
+<body class="bg-gray-950 text-gray-100 font-sans p-4 sm:p-6 sm:pl-16 min-h-screen">
+    <nav-drawer></nav-drawer>
+
+    <div class="max-w-7xl mx-auto space-y-6">
+        <!-- Header -->
+        <header class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-800 pb-4">
+            <div>
+                <h1 class="text-xl sm:text-2xl font-bold text-emerald-400 font-mono flex items-center gap-2">
+                    ⚡ Go-MODBUS REALTIME DISSECTOR
+                </h1>
+                <p class="text-xs text-gray-500 font-mono mt-1">Serial & Frame Logic Analyzer (RTU Protocol Engine)</p>
+            </div>
+            <div class="flex items-center gap-3">
+                <span id="ws-status-badge" class="px-3 py-1 bg-amber-950/80 text-amber-400 rounded-full text-xs font-mono border border-amber-800/80 shadow-inner flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span> CONNECTING WS...
+                </span>
+                <span class="px-3 py-1 bg-emerald-950/80 text-emerald-400 rounded-full text-xs font-mono border border-emerald-800/80 shadow-inner">
+                    GO ENGINE ACTIVE
+                </span>
+            </div>
+        </header>
+
+        <!-- Serial Control Bar -->
+        <div class="bg-gray-900 rounded-xl border border-gray-800 p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4 shadow-xl">
+            <!-- Port Selection Brief -->
+            <div class="flex items-center gap-3 flex-1">
+                <div class="p-2 bg-gray-950 border border-gray-800 rounded-lg text-emerald-400 font-mono text-sm">🔌</div>
+                <div class="flex-1 min-w-0">
+                    <label class="block text-[10px] font-mono text-gray-500 uppercase">Selected Interface</label>
+                    <select id="port-select" class="w-full bg-transparent text-emerald-400 text-xs sm:text-sm font-mono focus:outline-none truncate">
+                        <option value="" class="bg-gray-900">Scanning for ports...</option>
+                    </select>
+                </div>
+                <button onclick="fetchPorts()" class="p-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition border border-gray-700 text-xs font-mono" title="Refresh Ports">
+                    🔄
+                </button>
+            </div>
+
+            <!-- Data Interpretation Mode -->
+            <div class="flex items-center gap-2">
+                <label class="text-[10px] font-mono text-gray-500 uppercase whitespace-nowrap">Decoder Mode:</label>
+                <select id="decoder-mode" onchange="redecodeTrafficFeed()" class="bg-gray-950 text-cyan-400 border border-gray-800 rounded-lg p-2 text-xs font-mono focus:outline-none focus:border-emerald-500">
+                    <option value="uint16">UInt16 (16-bit)</option>
+                    <option value="int16">Int16 (Signed)</option>
+                    <option value="float32_abcd">Float32 (ABCD Big-Endian)</option>
+                    <option value="float32_cdab">Float32 (CDAB Byte-Swapped)</option>
+                </select>
+            </div>
+
+            <!-- Configuration Summary Badge & Actions -->
+            <div class="flex items-center justify-between md:justify-end gap-3 pt-3 md:pt-0 border-t md:border-t-0 border-gray-800">
+                <button onclick="openSettingsModal()" class="flex items-center gap-2 bg-gray-800/80 hover:bg-gray-700 text-gray-200 text-xs font-mono px-3 py-2 rounded-lg transition border border-gray-700">
+                    ⚙️ <span id="config-summary" class="text-amber-400 font-bold">9600 / 8N1</span>
+                </button>
+
+                <button id="connect-btn" onclick="toggleConnection()" class="flex-1 md:flex-none bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-xs font-bold px-5 py-2.5 rounded-lg transition shadow-lg shadow-emerald-950/50">
+                    Connect Engine
+                </button>
+            </div>
+        </div>
+
+        <!-- Telemetry Stats -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div class="bg-gray-900 p-4 rounded-xl border border-gray-800">
+                <p class="text-gray-400 text-xs font-mono uppercase">Requests</p>
+                <p id="stat-req" class="text-2xl font-mono font-bold text-blue-400 mt-1">0</p>
+            </div>
+            <div class="bg-gray-900 p-4 rounded-xl border border-gray-800">
+                <p class="text-gray-400 text-xs font-mono uppercase">Responses</p>
+                <p id="stat-res" class="text-2xl font-mono font-bold text-purple-400 mt-1">0</p>
+            </div>
+            <div class="bg-gray-900 p-4 rounded-xl border border-gray-800">
+                <p class="text-gray-400 text-xs font-mono uppercase">Exceptions</p>
+                <p id="stat-exc" class="text-2xl font-mono font-bold text-rose-500 mt-1">0</p>
+            </div>
+            <div class="bg-gray-900 p-4 rounded-xl border border-gray-800">
+                <p class="text-gray-400 text-xs font-mono uppercase mb-2">Top Byte Weights</p>
+                <div id="byte-graph" class="space-y-1.5 text-xs font-mono"></div>
+            </div>
+        </div>
+
+        <!-- RTU Logic Analyzer Track -->
+        <div class="bg-gray-900 rounded-xl border border-gray-800 p-4 shadow-xl">
+            <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-2 mb-3">
+                <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-wider font-mono">🔍 Modbus RTU Logic Analyzer Stream (Last Frame Capture)</h2>
+                <div id="timeline-meta" class="text-xs font-mono text-gray-500">Waiting for data...</div>
+            </div>
+            
+            <div class="space-y-3 bg-gray-950 p-4 rounded-lg border border-gray-800 overflow-x-auto mb-4">
+                <div class="flex items-center min-w-[700px] gap-2">
+                    <div class="w-28 text-xs font-mono font-bold text-emerald-400 border-r border-gray-800 pr-2 select-none">RTU DISSECTION</div>
+                    <div id="track-rtu" class="flex flex-1 items-center gap-1.5 overflow-x-auto"></div>
+                </div>
+            </div>
+
+            <!-- Waveform Visualizer -->
+            <div class="bg-gray-950 p-4 rounded-lg border border-gray-800">
+                <div class="flex flex-col sm:flex-row justify-between sm:items-center text-xs font-mono text-amber-500 mb-2 gap-2">
+                    <span class="flex items-center gap-2">
+                        <span class="inline-block w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span> 
+                        UART LOGIC WAVEFORM OVERLAY
+                    </span>
+                    <div class="flex gap-4 text-gray-400 text-[11px]">
+                        <div>Baud Rate: <span id="waveform-baud" class="text-sky-400 font-bold">9600 bps</span></div>
+                        <div>Framing: <span id="waveform-framing" class="text-sky-400 font-bold">8N1</span></div>
+                    </div>
+                </div>
+                <div class="overflow-x-auto w-full">
+                    <canvas id="serialCanvas" width="1600" height="110" class="bg-black rounded border border-gray-900 w-full"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live Feed Table -->
+        <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden shadow-xl">
+            <div class="p-4 bg-gray-900 border-b border-gray-800 flex flex-col sm:flex-row justify-between sm:items-center gap-3">
+                <div class="font-semibold text-gray-300 text-sm font-mono flex items-center gap-2">
+                    <span>📡 Live Traffic Feed</span>
+                    <span id="packet-count" class="text-xs text-gray-500 font-normal">(0 packets)</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button onclick="exportTraffic('csv')" class="bg-gray-800 hover:bg-gray-700 text-cyan-400 border border-gray-700 font-mono text-xs px-3 py-1.5 rounded transition flex items-center gap-1">
+                        📥 CSV
+                    </button>
+                    <button onclick="exportTraffic('json')" class="bg-gray-800 hover:bg-gray-700 text-emerald-400 border border-gray-700 font-mono text-xs px-3 py-1.5 rounded transition flex items-center gap-1">
+                        📥 JSON
+                    </button>
+                    <button onclick="clearTrafficFeed()" class="bg-rose-950/50 hover:bg-rose-900/50 text-rose-400 border border-rose-800/50 font-mono text-xs px-3 py-1.5 rounded transition">
+                        🗑️ Clear
+                    </button>
+                </div>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-gray-950 text-gray-400 text-xs font-mono border-b border-gray-800">
+                            <th class="p-3">Timestamp</th><th class="p-3">Type</th><th class="p-3">Direction</th>
+                            <th class="p-3">Function</th><th class="p-3">Data Payload (Decoded)</th><th class="p-3">Latency</th>
+                        </tr>
+                    </thead>
+                    <tbody id="packet-rows" class="divide-y divide-gray-800 font-mono text-xs"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Responsive Settings Dialog Modal -->
+    <div id="settings-modal" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm hidden opacity-0 transition-opacity duration-200">
+        <div class="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-5 transform scale-95 transition-transform duration-200" id="modal-card">
+            <div class="flex justify-between items-center border-b border-gray-800 pb-3">
+                <h3 class="text-sm font-bold font-mono text-emerald-400 uppercase tracking-wider flex items-center gap-2">
+                    🛠️ Serial Line Parameters
+                </h3>
+                <button onclick="closeSettingsModal()" class="text-gray-500 hover:text-gray-300 font-mono text-lg">✕</button>
+            </div>
+
+            <!-- Form Controls Grid -->
+            <div class="grid grid-cols-2 gap-4 text-xs font-mono">
+                <!-- Baud Rate -->
+                <div class="col-span-2 sm:col-span-1">
+                    <label class="block text-gray-400 mb-1">BAUD RATE</label>
+                    <select id="cfg-baud" class="w-full bg-gray-950 border border-gray-800 text-amber-400 rounded-lg p-2.5 focus:outline-none focus:border-emerald-500">
+                        <option value="4800">4800</option>
+                        <option value="9600" selected>9600</option>
+                        <option value="19200">19200</option>
+                        <option value="38400">38400</option>
+                        <option value="57600">57600</option>
+                        <option value="115200">115200</option>
+                    </select>
+                </div>
+
+                <!-- Parity -->
+                <div class="col-span-2 sm:col-span-1">
+                    <label class="block text-gray-400 mb-1">PARITY</label>
+                    <select id="cfg-parity" class="w-full bg-gray-950 border border-gray-800 text-sky-400 rounded-lg p-2.5 focus:outline-none focus:border-emerald-500">
+                        <option value="None" selected>None (N)</option>
+                        <option value="Even">Even (E)</option>
+                        <option value="Odd">Odd (O)</option>
+                    </select>
+                </div>
+
+                <!-- Data Bits -->
+                <div>
+                    <label class="block text-gray-400 mb-1">DATA BITS</label>
+                    <select id="cfg-databits" class="w-full bg-gray-950 border border-gray-800 text-sky-400 rounded-lg p-2.5 focus:outline-none focus:border-emerald-500">
+                        <option value="7">7 Bits</option>
+                        <option value="8" selected>8 Bits</option>
+                    </select>
+                </div>
+
+                <!-- Stop Bits -->
+                <div>
+                    <label class="block text-gray-400 mb-1">STOP BITS</label>
+                    <select id="cfg-stopbits" class="w-full bg-gray-950 border border-gray-800 text-sky-400 rounded-lg p-2.5 focus:outline-none focus:border-emerald-500">
+                        <option value="1" selected>1 Bit</option>
+                        <option value="2">2 Bits</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="bg-gray-950/60 p-3 rounded-lg border border-gray-800/80 text-[11px] font-mono text-gray-400">
+                Current Frame: <span id="preview-framing" class="text-amber-400 font-bold">9600 8N1</span>
+            </div>
+
+            <!-- Action Buttons -->
+            <div class="flex gap-3 pt-2">
+                <button onclick="closeSettingsModal()" class="flex-1 bg-gray-800 hover:bg-gray-700 text-gray-300 font-mono text-xs py-2.5 rounded-lg border border-gray-700">
+                    Cancel
+                </button>
+                <button onclick="saveAndApplySettings()" class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-xs font-bold py-2.5 rounded-lg transition shadow-md">
+                    Apply Config
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let socket = null;
+        let isConnected = false;
+        let packetStore = [];
+        let reconnectAttempts = 0;
+        const maxReconnectInterval = 10000;
+
+        const rows = document.getElementById('packet-rows');
+        const canvas = document.getElementById('serialCanvas');
+        const ctx = canvas.getContext('2d');
+
+        initializeCanvasBlank();
+        fetchPorts();
+        connectWebSocket();
+
+        // -------------------------------------------------------------
+        // WebSocket Connection & Resiliency Engine
+        // -------------------------------------------------------------
+        function connectWebSocket() {
+            const wsBadge = document.getElementById('ws-status-badge');
+            const wsScheme = window.location.protocol === "https:" ? "wss://" : "ws://";
+            socket = new WebSocket(wsScheme + window.location.host + "/ws");
+
+            socket.onopen = function() {
+                reconnectAttempts = 0;
+                wsBadge.className = "px-3 py-1 bg-emerald-950/80 text-emerald-400 rounded-full text-xs font-mono border border-emerald-800/80 shadow-inner flex items-center gap-2";
+                wsBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> WS ONLINE';
+            };
+
+            socket.onmessage = handleWebSocketMessage;
+
+            socket.onclose = function() {
+                wsBadge.className = "px-3 py-1 bg-rose-950/80 text-rose-400 rounded-full text-xs font-mono border border-rose-800/80 shadow-inner flex items-center gap-2";
+                wsBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-rose-500 animate-ping"></span> WS RECONNECTING...';
+                
+                const timeout = Math.min(1000 * Math.pow(2, reconnectAttempts), maxReconnectInterval);
+                reconnectAttempts++;
+                setTimeout(connectWebSocket, timeout);
+            };
+
+            socket.onerror = function() {
+                socket.close();
+            };
+        }
+
+        function handleWebSocketMessage(event) {
+            const data = JSON.parse(event.data);
+            
+            if (data.action) {
+                const btn = document.getElementById('connect-btn');
+                if (data.action === "connect") {
+                    btn.innerText = "Disconnect Engine";
+                    btn.className =
+                        "flex-1 md:flex-none bg-rose-600 hover:bg-rose-500 text-white font-mono text-xs font-bold px-5 py-2.5 rounded-lg transition shadow-lg shadow-rose-950/50";
+                    isConnected = true;
+                } else if (data.action === "disconnect") {
+                    btn.innerText = "Connect Engine";
+                    btn.className =
+                        "flex-1 md:flex-none bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-xs font-bold px-5 py-2.5 rounded-lg transition shadow-lg shadow-emerald-950/50";
+                    isConnected = false;
+                }
+                return;
+            }
+
+            if (data.type === "stats") {
+                document.getElementById('stat-req').innerText = data.requests;
+                document.getElementById('stat-res').innerText = data.responses;
+                document.getElementById('stat-exc').innerText = data.exceptions;
+
+                const graphContainer = document.getElementById('byte-graph');
+                graphContainer.innerHTML = '';
+                if (data.top_bytes && data.top_bytes.length) {
+                    const maxVal = data.top_bytes[0][1];
+                    data.top_bytes.forEach(([byte, freq]) => {
+                        const widthPct = Math.max(5, (freq / maxVal) * 100);
+                        var hexLabel = "0x" + parseInt(byte).toString(16).toUpperCase().padStart(2,'0');
+                        graphContainer.innerHTML += '<div class="flex items-center gap-2"><span class="w-8 text-gray-500 text-[10px]">' + hexLabel + '</span><div class="flex-1 bg-gray-950 rounded h-1.5 overflow-hidden border border-gray-800"><div class="bg-emerald-500 h-full" style="width: ' + widthPct + '%"></div></div></div>';
+                    });
+                }
+                return;
+            }
+
+            // Packet Entry
+            packetStore.unshift(data);
+            if (packetStore.length > 200) packetStore.pop();
+
+            renderPacketRow(data);
+            document.getElementById('packet-count').innerText = `(${packetStore.length} packets)`;
+
+            const byteCount = (data.raw_ints || data.bytes_list || []).length;
+            document.getElementById('timeline-meta').innerText = data.type + ' | ' + data.source + ' -> ' + data.destination + ' (' + byteCount + ' Bytes)';
+            
+            renderRTULogicTrack(data.raw_ints || data.bytes_list);
+
+            if (data.raw_ints && data.raw_ints.length > 0) {
+                renderSerialWaveform(data.raw_ints);
+            }
+        }
+
+        // -------------------------------------------------------------
+        // Modbus RTU Logic Dissection Track
+        // -------------------------------------------------------------
+        function renderRTULogicTrack(rawBytes) {
+            const track = document.getElementById('track-rtu');
+            track.innerHTML = '';
+
+            if (!rawBytes || rawBytes.length < 4) {
+                track.innerHTML = '<span class="text-xs text-gray-600 font-mono">Malformed RTU Frame</span>';
+                return;
+            }
+
+            // Safely parse array items regardless of whether they are integers or string hex
+            const bytes = rawBytes.map(b => typeof b === 'number' ? b : parseInt(b, 16));
+
+            const total = bytes.length;
+            const slaveId = bytes[0];
+            const funcCode = bytes[1];
+            const crcLow = bytes[total - 2];
+            const crcHigh = bytes[total - 1];
+
+            const headerOffset = (funcCode === 0x03 || funcCode === 0x04) ? 3 : 2;
+            const payloadBytes = bytes.slice(headerOffset, total - 2);
+
+            // Slave ID
+            track.innerHTML += `
+                <div class="flex flex-col items-center bg-amber-950/40 border border-amber-500/50 text-amber-400 px-3 py-1.5 rounded font-mono text-[11px] font-bold shadow-sm">
+                    <span class="opacity-40 text-[9px]">SLAVE</span>
+                    <span>0x${slaveId.toString(16).padStart(2,'0').toUpperCase()}</span>
+                </div>
+            `;
+
+            // Function Code
+            track.innerHTML += `
+                <div class="flex flex-col items-center bg-cyan-950/40 border border-cyan-500/50 text-cyan-400 px-3 py-1.5 rounded font-mono text-[11px] font-bold shadow-sm">
+                    <span class="opacity-40 text-[9px]">FUNC</span>
+                    <span>0x${funcCode.toString(16).padStart(2,'0').toUpperCase()}</span>
+                </div>
+            `;
+
+            // Optional Byte Count box for Read Functions
+            if (funcCode === 0x03 || funcCode === 0x04) {
+                track.innerHTML += `
+                    <div class="flex flex-col items-center bg-purple-950/40 border border-purple-500/40 text-purple-400 px-2 py-1.5 rounded font-mono text-[11px] font-bold min-w-[45px] shadow-sm">
+                        <span class="opacity-40 text-[9px]">BYTES</span>
+                        <span>${bytes[2]}</span>
+                    </div>
+                `;
+            }
+
+            // Data Payload Bytes
+            payloadBytes.forEach((b, idx) => {
+                track.innerHTML += `
+                    <div class="flex flex-col items-center bg-emerald-950/40 border border-emerald-500/40 text-emerald-400 px-2 py-1.5 rounded font-mono text-[11px] font-bold min-w-[45px] shadow-sm">
+                        <span class="opacity-40 text-[9px]">D${idx}</span>
+                        <span>0x${b.toString(16).padStart(2,'0').toUpperCase()}</span>
+                    </div>
+                `;
+            });
+
+            // CRC16
+            track.innerHTML += `
+                <div class="flex flex-col items-center bg-rose-950/40 border border-rose-500/50 text-rose-400 px-3 py-1.5 rounded font-mono text-[11px] font-bold shadow-sm">
+                    <span class="opacity-40 text-[9px]">CRC16</span>
+                    <span>0x${crcHigh.toString(16).padStart(2,'0').toUpperCase()}${crcLow.toString(16).padStart(2,'0').toUpperCase()}</span>
+                </div>
+            `;
+        }
+
+        // -------------------------------------------------------------
+        // Data Interpretation Engine (Float32, Int16, UInt16)
+        // -------------------------------------------------------------
+        function decodeRegisters(rawBytes, mode) {
+            if (!rawBytes || rawBytes.length === 0) return '[]';
+            
+            let bytes = rawBytes.map(b => typeof b === 'number' ? b : parseInt(b, 16));
+            if (bytes.length >= 5) {
+                bytes = bytes.slice(2, bytes.length - 2);
+            }
+
+            const results = [];
+            
+            if (mode === 'uint16') {
+                for (let i = 0; i < bytes.length - 1; i += 2) {
+                    const val = (bytes[i] << 8) | bytes[i + 1];
+                    results.push(val);
+                }
+            } else if (mode === 'int16') {
+                for (let i = 0; i < bytes.length - 1; i += 2) {
+                    let val = (bytes[i] << 8) | bytes[i + 1];
+                    if (val & 0x8000) val |= ~0xFFFF;
+                    results.push(val);
+                }
+            } else if (mode === 'float32_abcd' || mode === 'float32_cdab') {
+                const buffer = new ArrayBuffer(4);
+                const view = new DataView(buffer);
+
+                for (let i = 0; i < bytes.length - 3; i += 4) {
+                    let b0 = bytes[i], b1 = bytes[i + 1], b2 = bytes[i + 2], b3 = bytes[i + 3];
+                    if (mode === 'float32_cdab') {
+                        view.setUint8(0, b2); view.setUint8(1, b3);
+                        view.setUint8(2, b0); view.setUint8(3, b1);
+                    } else {
+                        view.setUint8(0, b0); view.setUint8(1, b1);
+                        view.setUint8(2, b2); view.setUint8(3, b3);
+                    }
+                    results.push(Number(view.getFloat32(0, false).toFixed(3)));
+                }
+            }
+            return results.length ? `[${results.join(', ')}]` : '[]';
+        }
+
+        function renderPacketRow(data) {
+            const tr = document.createElement('tr');
+            tr.className = "hover:bg-gray-850 transition-colors";
+            
+            const typeBadge = (data.type === 'REQ' || data.type === 'REQUEST')
+                ? '<span class="text-blue-400 bg-blue-950/50 px-2 py-0.5 rounded border border-blue-900/50">REQ</span>' 
+                : (data.exception ? '<span class="text-rose-400 bg-rose-950/50 px-2 py-0.5 rounded border border-rose-900/50">ERR</span>' : '<span class="text-purple-400 bg-purple-950/50 px-2 py-0.5 rounded border border-purple-900/50">RES</span>');
+                
+            const latencyDisplay = (data.type === 'RES' || data.type === 'RESPONSE') ? (data.latency || 0) + ' ms' : '-';
+            
+            let integerString = '<span class="text-gray-600">None</span>';
+            const decoded = data.decoded_payload || data.DecodedPayload;
+
+            if (data.exception) {
+                integerString = '<span class="text-rose-500 font-bold">Exception ' + data.exception + '</span>';
+            } else if (decoded && decoded.length > 0) {
+                integerString = `<span class="text-amber-400 font-bold">[${decoded.join(', ')}]</span>`;
+            } else {
+                const mode = document.getElementById('decoder-mode').value;
+                const fallbackDecoded = decodeRegisters(data.raw_ints || data.bytes_list || [], mode);
+                integerString = `<span class="text-amber-400 font-bold">${fallbackDecoded}</span>`;
+            }
+
+            tr.innerHTML = ' <td class="p-3 text-gray-500">' + data.timestamp + '</td><td class="p-3">' + typeBadge + '</td><td class="p-3 text-gray-300">' + data.source + ' -> ' + data.destination + '</td><td class="p-3 text-emerald-400">' + data.fc + '</td><td class="p-3">' + integerString + '</td><td class="p-3 text-gray-400">' + latencyDisplay + '</td> ';
+            rows.insertBefore(tr, rows.firstChild);
+            if(rows.children.length > 50) rows.lastChild.remove();
+        }
+
+        function redecodeTrafficFeed() {
+            rows.innerHTML = '';
+            packetStore.slice(0, 50).reverse().forEach(pkt => renderPacketRow(pkt));
+        }
+
+        function clearTrafficFeed() {
+            sendSerialConfigPayload("resetstat");
+            packetStore = [];
+            rows.innerHTML = '';
+            document.getElementById('packet-count').innerText = '(0 packets)';
+        }
+
+        // -------------------------------------------------------------
+        // CSV / JSON Export Pipeline
+        // -------------------------------------------------------------
+        function exportTraffic(format) {
+            if (!packetStore.length) {
+                alert("No captured traffic to export.");
+                return;
+            }
+
+            let mimeType = 'application/json';
+            let fileExt = 'json';
+            let content = '';
+
+            if (format === 'json') {
+                content = JSON.stringify(packetStore, null, 2);
+            } else {
+                mimeType = 'text/csv';
+                fileExt = 'csv';
+                const headers = ['Timestamp', 'Type', 'Source', 'Destination', 'FunctionCode', 'Exception', 'Latency', 'RawBytes'];
+                const csvRows = [headers.join(',')];
+
+                packetStore.forEach(p => {
+                    csvRows.push([
+                        `"${p.timestamp}"`,
+                        `"${p.type}"`,
+                        `"${p.source}"`,
+                        `"${p.destination}"`,
+                        `"${p.fc}"`,
+                        `"${p.exception || ''}"`,
+                        `"${p.latency || ''}"`,
+                        `"${(p.raw_ints || p.bytes_list || []).join(' ')}"`
+                    ].join(','));
+                });
+                content = csvRows.join('\n');
+            }
+
+            const blob = new Blob([content], { type: mimeType });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `modbus_capture_${Date.now()}.${fileExt}`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // -------------------------------------------------------------
+        // Modal & Serial Configuration Handlers
+        // -------------------------------------------------------------
+        function openSettingsModal() {
+            const modal = document.getElementById('settings-modal');
+            const card = document.getElementById('modal-card');
+            modal.classList.remove('hidden');
+            setTimeout(() => {
+                modal.classList.remove('opacity-0');
+                card.classList.remove('scale-95');
+            }, 10);
+            updatePreviewLabel();
+        }
+
+        function closeSettingsModal() {
+            const modal = document.getElementById('settings-modal');
+            const card = document.getElementById('modal-card');
+            modal.classList.add('opacity-0');
+            card.classList.add('scale-95');
+            setTimeout(() => modal.classList.add('hidden'), 200);
+        }
+
+        function updatePreviewLabel() {
+            const baud = document.getElementById('cfg-baud').value;
+            const data = document.getElementById('cfg-databits').value;
+            const parity = document.getElementById('cfg-parity').value;
+            const stop = document.getElementById('cfg-stopbits').value;
+            const str = `${baud} ${data}${parity}${stop}`;
+            document.getElementById('preview-framing').innerText = str;
+            return { baud: parseInt(baud), data_bits: parseInt(data), parity, stop_bits: parseInt(stop), str };
+        }
+
+        ['cfg-baud', 'cfg-databits', 'cfg-parity', 'cfg-stopbits'].forEach(id => {
+            document.getElementById(id).addEventListener('change', updatePreviewLabel);
+        });
+
+        function saveAndApplySettings() {
+            const cfg = updatePreviewLabel();
+            document.getElementById('config-summary').innerText = `${cfg.baud} / ${cfg.data_bits}${cfg.parity}${cfg.stop_bits}`;
+            document.getElementById('waveform-baud').innerText = `${cfg.baud} bps`;
+            document.getElementById('waveform-framing').innerText = `${cfg.data_bits}${cfg.parity}${cfg.stop_bits}`;
+            closeSettingsModal();
+            if (isConnected) {
+                sendSerialConfigPayload("config");
+            }
+        }
+
+        function getFullSerialPayload(actionType = "connect") {
+            const cfg = updatePreviewLabel();
+            return {
+                action: actionType,
+                port: document.getElementById('port-select').value,
+                baudrate: cfg.baud,
+                baudRate: cfg.baud,
+                databits: cfg.data_bits,
+                parity: cfg.parity,
+                stopbits: cfg.stop_bits
+            };
+        }
+
+        function sendSerialConfigPayload(actionType) {
+            const payload = getFullSerialPayload(actionType);
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify(payload));
+            }
+        }
+
+        function toggleConnection() {
+            if (!isConnected) {
+                sendSerialConfigPayload("connect");
+            } else {
+                sendSerialConfigPayload("disconnect");
+            }
+        }
+
+        async function fetchPorts() {
+            const select = document.getElementById('port-select');
+            try {
+                const res = await fetch('rtu/ports');
+                if (!res.ok) throw new Error("HTTP " + res.status);
+
+                const ports = await res.json();
+                select.innerHTML = '';
+                if (!ports || ports.length === 0) {
+                    select.innerHTML = '<option value="">No physical ports found</option>';
+                    return;
+                }
+                ports.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.port;
+                    opt.innerText = p.label || p.port;
+                    select.appendChild(opt);
+                });
+            } catch(e) {
+                select.innerHTML = '<option value="">Failed to list ports</option>';
+            }
+        }
+
+        // -------------------------------------------------------------
+        // Canvas Waveform Generator
+        // -------------------------------------------------------------
+        function initializeCanvasBlank() {
+            ctx.fillStyle = '#09090b';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 1;
+            for(let i=0; i<canvas.width; i+=80) {
+                ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke();
+            }
+            ctx.fillStyle = '#64748b';
+            ctx.font = '11px monospace';
+            ctx.fillText("No current frames captured. Awaiting native Go network stream...", 20, 60);
+        }
+
+        function renderSerialWaveform(intsArray) {
+            if (!intsArray || intsArray.length === 0) return;
+            
+            ctx.fillStyle = '#020617';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            ctx.strokeStyle = '#1e293b';
+            ctx.lineWidth = 1;
+            for(let i=0; i<canvas.width; i+=100) {
+                ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, canvas.height); ctx.stroke();
+            }
+
+            let currentX = 10;
+            const highY = 35;
+            const lowY = 80;
+            const bitWidth = 8;
+
+            ctx.lineWidth = 2.5;
+            ctx.lineJoin = 'miter';
+
+            intsArray.slice(0, 16).forEach((byteValue) => {
+                let frameBits = [];
+                frameBits.push({ val: 0, label: 'START', color: '#f43f5e' });
+                
+                for (let b = 0; b < 8; b++) {
+                    let bit = (byteValue >> b) & 1;
+                    frameBits.push({ val: bit, label: 'D' + b, color: '#38bdf8' });
+                }
+                frameBits.push({ val: 1, label: 'STOP', color: '#10b981' });
+                frameBits.push({ val: 1, label: 'IDLE', color: '#475569' });
+
+                ctx.fillStyle = '#fbbf24';
+                ctx.font = 'bold 10px monospace';
+                ctx.fillText('[0x' + byteValue.toString(16).toUpperCase().padStart(2,'0') + ']', currentX + 4, highY - 18);
+
+                frameBits.forEach((bitObj) => {
+                    let targetY = bitObj.val === 1 ? highY : lowY;
+                    
+                    ctx.strokeStyle = bitObj.color;
+                    ctx.beginPath();
+                    ctx.moveTo(currentX, targetY);
+                    currentX += bitWidth;
+                    ctx.lineTo(currentX, targetY);
+                    ctx.stroke();
+
+                    ctx.strokeStyle = '#334155';
+                    ctx.lineWidth = 0.5;
+                    ctx.beginPath(); ctx.moveTo(currentX, highY); ctx.lineTo(currentX, lowY); ctx.stroke();
+                    ctx.lineWidth = 2.5;
+
+                    if (bitObj.label !== 'IDLE' && bitObj.label !== 'D1' && bitObj.label !== 'D3' && bitObj.label !== 'D5' && bitObj.label !== 'D7') {
+                        ctx.fillStyle = '#64748b';
+                        ctx.font = '8px monospace';
+                        ctx.fillText(bitObj.label, currentX - bitWidth, lowY + 16);
+                    }
+                });
+                currentX += 6;
+            });
+        }
+    </script>
+</body>
+</html>

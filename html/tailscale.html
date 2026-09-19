@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tailscale Engine Control</title>
+    <script src="tailwind.js"></script>
+    <script src="/nav-drawer.js" defer></script>
+</head>
+<body class="bg-gray-950 text-gray-100 font-sans p-6">
+    <nav-drawer></nav-drawer>
+    <div class="max-w-4xl mx-auto">
+        <!-- Header -->
+        <header class="mb-6 flex justify-between items-center border-b border-gray-800 pb-4">
+            <h1 class="text-2xl font-bold text-cyan-400 font-mono flex items-center gap-2">
+                <span>🔒 TAILSCALE SERVICE MANAGER</span>
+            </h1>
+            <span id="engine-badge" class="px-3 py-1 bg-gray-900 text-gray-400 rounded-full text-xs font-mono border border-gray-800">
+                STATUS: UNKNOWN
+            </span>
+        </header>
+
+        <!-- Status & Controls -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div class="bg-gray-900 p-4 rounded-lg border border-gray-800 col-span-2">
+                <p class="text-gray-400 text-sm mb-1">Tailscale Client Status</p>
+                <div class="flex items-center gap-3">
+                    <span id="status-indicator" class="w-3 h-3 rounded-full bg-gray-600"></span>
+                    <p id="status-text" class="text-xl font-mono font-bold text-gray-400">Disconnected</p>
+                </div>
+            </div>
+
+            <div class="bg-gray-900 p-4 rounded-lg border border-gray-800 flex flex-col justify-center gap-2">
+                <button 
+                    id="btn-start"
+                    onclick="sendTailscaleCommand('start')"
+                    class="w-full bg-emerald-950 hover:bg-emerald-900 text-emerald-400 font-mono text-sm py-2 px-4 rounded border border-emerald-800 transition-colors flex justify-center items-center gap-2">
+                    <span>▶ START CLIENT</span>
+                </button>
+                <button 
+                    id="btn-stop"
+                    disabled
+                    onclick="sendTailscaleCommand('stop')"
+                    class="w-full bg-rose-950 hover:bg-rose-900 text-rose-400 font-mono text-sm py-2 px-4 rounded border border-rose-800 transition-colors flex justify-center items-center gap-2">
+                    <span>⏹ STOP CLIENT</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Realtime Activity Log -->
+        <div class="bg-gray-900 rounded-lg border border-gray-800 overflow-hidden shadow-xl">
+            <div class="p-4 bg-gray-900 border-b border-gray-800 flex justify-between items-center">
+                <span class="font-semibold text-gray-300 font-mono text-sm">HTTP Request Log</span>
+                <span class="text-xs font-mono text-gray-500">POST /tailscale/settings</span>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left border-collapse">
+                    <thead>
+                        <tr class="bg-gray-950 text-gray-400 text-xs font-mono border-b border-gray-800">
+                            <th class="p-3">Timestamp</th>
+                            <th class="p-3">Payload Sent</th>
+                            <th class="p-3">HTTP Status</th>
+                            <th class="p-3">Response</th>
+                        </tr>
+                    </thead>
+                    <tbody id="log-rows" class="divide-y divide-gray-800 font-mono text-xs">
+                        <tr>
+                            <td colspan="4" class="p-4 text-center text-gray-600">No requests sent yet. Click Start or Stop to dispatch payloads.</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const endpoint = '/tailscale/settings';
+
+        async function sendTailscaleCommand(action) {
+            const timestamp = new Date().toLocaleTimeString();
+            const logRows = document.getElementById('log-rows');
+            
+            // Clear empty placeholder on first click
+            if (logRows.children.length === 1 && logRows.children[0].cells.length === 1) {
+                logRows.innerHTML = '';
+            }
+
+            const tr = document.createElement('tr');
+            tr.className = "hover:bg-gray-850 transition-colors";
+            
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ client: action })
+                });
+
+                const statusBadge = response.ok 
+                    ? `<span class="text-emerald-400 bg-emerald-950/50 px-2 py-0.5 rounded border border-emerald-900/50">${response.status} OK</span>`
+                    : `<span class="text-rose-400 bg-rose-950/50 px-2 py-0.5 rounded border border-rose-900/50">${response.status} ERR</span>`;
+
+                const resText = await response.text();
+
+                tr.innerHTML = `
+                    <td class="p-3 text-gray-500">${timestamp}</td>
+                    <td class="p-3 text-cyan-400">{"client": "${action}"}</td>
+                    <td class="p-3">${statusBadge}</td>
+                    <td class="p-3 text-gray-400">${resText || 'OK'}</td>
+                `;
+
+                if (response.ok) {
+                    updateUIStatus(action);
+                }
+
+            } catch (err) {
+                tr.innerHTML = `
+                    <td class="p-3 text-gray-500">${timestamp}</td>
+                    <td class="p-3 text-cyan-400">{"client": "${action}"}</td>
+                    <td class="p-3"><span class="text-rose-400 bg-rose-950/50 px-2 py-0.5 rounded border border-rose-900/50">FAILED</span></td>
+                    <td class="p-3 text-rose-500">${err.message}</td>
+                `;
+            }
+
+            logRows.insertBefore(tr, logRows.firstChild);
+        }
+
+        function updateUIStatus(action) {
+            const indicator = document.getElementById('status-indicator');
+            const text = document.getElementById('status-text');
+            const badge = document.getElementById('engine-badge');
+            const btnStart = document.getElementById('btn-start');
+            const btnStop = document.getElementById('btn-stop');
+
+            if (action === 'start') {
+                indicator.className = 'w-3 h-3 rounded-full bg-emerald-400 animate-pulse';
+                text.className = 'text-xl font-mono font-bold text-emerald-400';
+                text.innerText = 'Connected (goroutine active)';
+                badge.className = 'px-3 py-1 bg-emerald-950 text-emerald-400 rounded-full text-xs font-mono border border-emerald-800';
+                badge.innerText = 'SERVICE RUNNING';
+                btnStart.disabled = true;
+                btnStop.disabled = false;
+            } else if (action === 'stop') {
+                indicator.className = 'w-3 h-3 rounded-full bg-rose-500';
+                text.className = 'text-xl font-mono font-bold text-rose-400';
+                text.innerText = 'Disconnected';
+                badge.className = 'px-3 py-1 bg-rose-950 text-rose-400 rounded-full text-xs font-mono border border-rose-800';
+                badge.innerText = 'SERVICE STOPPED';
+                btnStart.disabled = false;
+                btnStop.disabled = true;
+            }
+        }
+    </script>
+</body>
+</html>

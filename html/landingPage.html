@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>System Dashboard & Network Overview</title>
+    <script src="/tailwind.js"></script>
+    <script src="/nav-drawer.js" defer></script>
+</head>
+<body class="bg-gray-950 text-gray-100 font-sans p-4 sm:p-6 sm:pl-16 min-h-screen">
+    <nav-drawer></nav-drawer>
+
+    <div class="max-w-7xl mx-auto space-y-6">
+        <!-- Header & Realtime Clock -->
+        <header class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-800 pb-4">
+            <div>
+                <h1 class="text-xl sm:text-2xl font-bold text-cyan-400 font-mono flex items-center gap-2">
+                    ⚡ SYSTEM DASHBOARD & GATEWAY
+                </h1>
+                <p class="text-xs text-gray-500 font-mono mt-1">Network Interfaces, WLAN AP & Node Status</p>
+            </div>
+            
+            <div class="flex items-center gap-4">
+                <!-- Digital Clock Display -->
+                <div class="text-right font-mono">
+                    <div id="clock-time" class="text-xl sm:text-2xl font-bold text-gray-100 tracking-wider">00:00:00</div>
+                    <div id="clock-date" class="text-[10px] text-cyan-500 uppercase tracking-widest">UTC --.--.----</div>
+                </div>
+                <span class="px-3 py-1 bg-cyan-950/80 text-cyan-400 rounded-full text-xs font-mono border border-cyan-800/80 shadow-inner hidden sm:inline-block">
+                    ONLINE
+                </span>
+            </div>
+        </header>
+
+        <!-- Network Interfaces & IP Summary -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- IPv4 Primary Card -->
+            <div class="bg-gray-900 p-4 rounded-xl border border-gray-800 flex items-center gap-4 shadow-xl">
+                <div class="p-3 bg-gray-950 border border-gray-800 rounded-lg text-cyan-400 font-mono text-xl">
+                    🌐
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-gray-500 text-[10px] font-mono uppercase tracking-wider">IPv4 Interface (eth0)</p>
+                    <p id="ip-eth0" class="text-lg font-mono font-bold text-cyan-400 truncate">192.168.1.150</p>
+                    <p class="text-[11px] text-gray-500 font-mono">Subnet: 255.255.255.0</p>
+                </div>
+            </div>
+
+            <!-- WLAN Access Point Card -->
+            <div class="bg-gray-900 p-4 rounded-xl border border-gray-800 flex items-center gap-4 shadow-xl">
+                <div class="p-3 bg-gray-950 border border-gray-800 rounded-lg text-amber-400 font-mono text-xl">
+                    📡
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-gray-500 text-[10px] font-mono uppercase tracking-wider">WLAN Access Point (wlan0)</p>
+                    <p id="ip-wlan0" class="text-lg font-mono font-bold text-amber-400 truncate">10.0.0.1</p>
+                    <p class="text-[11px] text-gray-500 font-mono">SSID: <span id="ap-ssid" class="text-gray-300 font-bold">Node_AP_5G</span></p>
+                </div>
+            </div>
+
+            <!-- Tailscale VPN Mesh Card -->
+            <div class="bg-gray-900 p-4 rounded-xl border border-gray-800 flex items-center gap-4 shadow-xl">
+                <div class="p-3 bg-gray-950 border border-gray-800 rounded-lg text-emerald-400 font-mono text-xl">
+                    🔒
+                </div>
+                <div class="flex-1 min-w-0">
+                    <p class="text-gray-500 text-[10px] font-mono uppercase tracking-wider">Tailscale IP (tailscale0)</p>
+                    <p id="ip-tailscale" class="text-lg font-mono font-bold text-emerald-400 truncate">100.64.0.42</p>
+                    <p class="text-[11px] text-gray-500 font-mono">Status: <span class="text-emerald-500 font-bold">Active Mesh</span></p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Access Point Telemetry & Live Metrics -->
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <!-- Left 2 Columns: AP Details & Signal Overview -->
+            <div class="lg:col-span-2 space-y-6">
+                <!-- Access Point Details Bar -->
+                <div class="bg-gray-900 rounded-xl border border-gray-800 p-5 shadow-xl space-y-4">
+                    <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-2 border-b border-gray-800 pb-3">
+                        <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-wider font-mono flex items-center gap-2">
+                            <span>📶</span> Access Point Status (hostapd)
+                        </h2>
+                        <span id="ap-status-badge" class="self-start sm:self-auto text-[11px] font-mono px-2.5 py-0.5 rounded border bg-emerald-950/60 text-emerald-400 border-emerald-800/80">
+                            HOSTAPD ACTIVE
+                        </span>
+                    </div>
+
+                    <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 font-mono text-xs">
+                        <div class="bg-gray-950 p-3 rounded-lg border border-gray-800/80">
+                            <span class="text-gray-500 block text-[10px] uppercase">Channel</span>
+                            <span id="ap-channel" class="text-amber-400 font-bold text-sm">36 (5 GHz)</span>
+                        </div>
+                        <div class="bg-gray-950 p-3 rounded-lg border border-gray-800/80">
+                            <span class="text-gray-500 block text-[10px] uppercase">Security</span>
+                            <span class="text-sky-400 font-bold text-sm">WPA2-PSK</span>
+                        </div>
+                        <div class="bg-gray-950 p-3 rounded-lg border border-gray-800/80">
+                            <span class="text-gray-500 block text-[10px] uppercase">Connected Clients</span>
+                            <span id="ap-clients-count" class="text-cyan-400 font-bold text-sm">3 Devices</span>
+                        </div>
+                        <div class="bg-gray-950 p-3 rounded-lg border border-gray-800/80">
+                            <span class="text-gray-500 block text-[10px] uppercase">TX Power</span>
+                            <span class="text-emerald-400 font-bold text-sm">20 dBm</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Connected Stations List -->
+                <div class="bg-gray-900 rounded-xl border border-gray-800 overflow-hidden shadow-xl">
+                    <div class="p-4 bg-gray-900 border-b border-gray-800 font-semibold text-gray-300 text-sm font-mono flex justify-between items-center">
+                        <span>Connected WLAN Stations</span>
+                        <button onclick="fetchNetworkData()" class="p-1.5 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg transition border border-gray-700 text-xs">
+                            🔄 Refresh
+                        </button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-gray-950 text-gray-400 text-xs font-mono border-b border-gray-800">
+                                    <th class="p-3">MAC Address</th>
+                                    <th class="p-3">Assigned IP</th>
+                                    <th class="p-3">Signal (RSSI)</th>
+                                    <th class="p-3">TX Rate</th>
+                                    <th class="p-3">Connected Time</th>
+                                </tr>
+                            </thead>
+                            <tbody id="station-rows" class="divide-y divide-gray-800 font-mono text-xs">
+                                <tr class="hover:bg-gray-850 transition-colors">
+                                    <td class="p-3 text-cyan-400">b8:27:eb:a1:b2:c3</td>
+                                    <td class="p-3 text-gray-300">10.0.0.12</td>
+                                    <td class="p-3 text-emerald-400">-52 dBm</td>
+                                    <td class="p-3 text-gray-400">72.2 Mbps</td>
+                                    <td class="p-3 text-gray-500">01h 14m</td>
+                                </tr>
+                                <tr class="hover:bg-gray-850 transition-colors">
+                                    <td class="p-3 text-cyan-400">a4:cf:12:88:99:00</td>
+                                    <td class="p-3 text-gray-300">10.0.0.24</td>
+                                    <td class="p-3 text-amber-400">-68 dBm</td>
+                                    <td class="p-3 text-gray-400">43.3 Mbps</td>
+                                    <td class="p-3 text-gray-500">00h 42m</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Column: System Quick Gauges & Navigation Links -->
+            <div class="space-y-6">
+                <!-- System Telemetry Metrics -->
+                <div class="bg-gray-900 rounded-xl border border-gray-800 p-5 shadow-xl space-y-4">
+                    <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-wider font-mono border-b border-gray-800 pb-3">
+                        ⚙️ System Health
+                    </h2>
+                    
+                    <!-- Gauge: CPU Load -->
+                    <div class="space-y-1 font-mono text-xs">
+                        <div class="flex justify-between text-gray-400">
+                            <span>CPU Utilization</span>
+                            <span id="metric-cpu-val" class="text-cyan-400 font-bold">14%</span>
+                        </div>
+                        <div class="w-full bg-gray-950 rounded-full h-2 border border-gray-800 overflow-hidden">
+                            <div id="metric-cpu-bar" class="bg-cyan-500 h-full transition-all duration-500" style="width: 14%"></div>
+                        </div>
+                    </div>
+
+                    <!-- Gauge: RAM Load -->
+                    <div class="space-y-1 font-mono text-xs">
+                        <div class="flex justify-between text-gray-400">
+                            <span>Memory (RAM)</span>
+                            <span id="metric-ram-val" class="text-emerald-400 font-bold">42%</span>
+                        </div>
+                        <div class="w-full bg-gray-950 rounded-full h-2 border border-gray-800 overflow-hidden">
+                            <div id="metric-ram-bar" class="bg-emerald-500 h-full transition-all duration-500" style="width: 42%"></div>
+                        </div>
+                    </div>
+
+                    <!-- Gauge: Storage -->
+                    <div class="space-y-1 font-mono text-xs">
+                        <div class="flex justify-between text-gray-400">
+                            <span>Disk Usage (/ root)</span>
+                            <span id="metric-disk-val" class="text-purple-400 font-bold">28%</span>
+                        </div>
+                        <div class="w-full bg-gray-950 rounded-full h-2 border border-gray-800 overflow-hidden">
+                            <div id="metric-disk-bar" class="bg-purple-500 h-full transition-all duration-500" style="width: 28%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Launcher Panel -->
+                <div class="bg-gray-900 rounded-xl border border-gray-800 p-5 shadow-xl space-y-3 font-mono text-xs">
+                    <h2 class="text-xs font-semibold text-gray-400 uppercase tracking-wider border-b border-gray-800 pb-3">
+                        🚀 Control Shortcuts
+                    </h2>
+                    <a href="/modbus/rtu" class="flex items-center justify-between p-2.5 rounded-lg bg-gray-950 hover:bg-gray-800 border border-gray-800 text-gray-300 transition">
+                        <span class="flex items-center gap-2">🔌 Modbus RTU Analyzer</span>
+                        <span class="text-gray-600">→</span>
+                    </a>
+                    <a href="/htop" class="flex items-center justify-between p-2.5 rounded-lg bg-gray-950 hover:bg-gray-800 border border-gray-800 text-gray-300 transition">
+                        <span class="flex items-center gap-2">📊 System Monitor</span>
+                        <span class="text-gray-600">→</span>
+                    </a>
+                    <a href="/logs" class="flex items-center justify-between p-2.5 rounded-lg bg-gray-950 hover:bg-gray-800 border border-gray-800 text-gray-300 transition">
+                        <span class="flex items-center gap-2">💻 Process Logs</span>
+                        <span class="text-gray-600">→</span>
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripting for Live Time Clock and Endpoint Data Fetching -->
+    <script>
+        // Live Realtime Clock
+        function updateClock() {
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('en-GB', { hour12: false });
+            const dateStr = now.toLocaleDateString('en-GB', { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric' });
+            
+            document.getElementById('clock-time').innerText = timeStr;
+            document.getElementById('clock-date').innerText = dateStr.toUpperCase();
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // Optional Backend Data Fetching hook
+        async function fetchNetworkData() {
+            try {
+                const res = await fetch('/api/network/status');
+                if (!res.ok) return;
+                const data = await res.json();
+
+                if (data.eth0) document.getElementById('ip-eth0').innerText = data.eth0;
+                if (data.wlan0) document.getElementById('ip-wlan0').innerText = data.wlan0;
+                if (data.tailscale) document.getElementById('ip-tailscale').innerText = data.tailscale;
+                if (data.ssid) document.getElementById('ap-ssid').innerText = data.ssid;
+            } catch (e) {
+                // Keep default state on error/offline mode
+            }
+        }
+        fetchNetworkData();
+    </script>
+</body>
+</html>
