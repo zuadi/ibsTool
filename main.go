@@ -2,6 +2,8 @@ package main
 
 import (
 	"log"
+	"os"
+	"strconv"
 
 	"ibsTool/logging"
 	"ibsTool/routes"
@@ -19,7 +21,17 @@ func main() {
 		log.Fatal("Error loading .env file")
 	}
 
-	s := webServer.NewWebServer("0.0.0.0", 8000)
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8000"
+	}
+
+	portInt, err := strconv.Atoi(port)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	s := webServer.NewWebServer("0.0.0.0", portInt)
 	lgr := logging.NewLogger()
 
 	lgr.BroadcastLog("start IBS-Tool")
@@ -29,7 +41,7 @@ func main() {
 		log.Fatal(err.Error())
 	}
 
-	lgr.BroadcastLog("🚀 Industrial Monitor Listening live at http://localhost:8000")
+	lgr.BroadcastLog("🚀 Industrial Monitor Listening live at http://localhost:" + port)
 
 	if err := s.ListenHttp(); err != nil {
 		log.Fatal(err)
