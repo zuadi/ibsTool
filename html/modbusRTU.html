@@ -307,11 +307,13 @@
                 return;
             }
 
+            if(data.counter){
+                document.getElementById('stat-req').innerText = data.counter.requests || 0;
+                document.getElementById('stat-res').innerText = data.counter.responses || 0;
+                document.getElementById('stat-exc').innerText = data.counter.exceptions || 0;
+            }
+            
             if (data.type === "stats") {
-                document.getElementById('stat-req').innerText = data.counter.requests;
-                document.getElementById('stat-res').innerText = data.counter.responses;
-                document.getElementById('stat-exc').innerText = data.counter.exceptions;
-
                 const graphContainer = document.getElementById('byte-graph');
                 graphContainer.innerHTML = '';
                 if (data.top_bytes && data.top_bytes.length) {
