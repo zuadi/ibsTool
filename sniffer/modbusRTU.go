@@ -83,7 +83,7 @@ func NewModbusRTUSniffer(ws *wsModels.WSClient, l *logging.Logger) (*ModbusRTUSn
 			sniffer.logger.BroadcastLog(err)
 			return
 		}
-		fmt.Println(200, settings)
+
 		if settings.Service != "rtu" {
 			return
 		}
@@ -206,7 +206,7 @@ func (rtu *ModbusRTUSniffer) Start(portName string, decodeMode string, baudRate 
 
 		select {
 		case <-ctx.Done():
-			fmt.Println(300)
+
 			return nil
 
 		case <-idleTimer.C:
@@ -221,7 +221,7 @@ func (rtu *ModbusRTUSniffer) Start(portName string, decodeMode string, baudRate 
 					frameBuffer = nil
 				}
 			}
-			fmt.Println(400)
+
 		default:
 			n, err := rtu.serialPort.Read(buf)
 			if err != nil {
@@ -240,7 +240,7 @@ func (rtu *ModbusRTUSniffer) Start(portName string, decodeMode string, baudRate 
 					if consumed == 0 {
 						break // Not enough bytes yet, wait for more data from serial port
 					}
-					fmt.Println(500)
+
 					if validFrame != nil {
 						rtu.processRTUFrame(validFrame)
 					}
