@@ -20,13 +20,14 @@ import (
 func SetRoutes(s *webServer.WebServer, l *logging.Logger) error {
 
 	ws := s.NewWebSocket("/ws")
+	wsHtop := s.NewWebSocket("/wshtop")
 
 	_, err := sniffer.NewModbusRTUSniffer(ws, l)
 	if err != nil {
 		return err
 	}
 
-	htopTask := htop.NewHtopProcess(ws, l)
+	htopTask := htop.NewHtopProcess(wsHtop, l)
 
 	// TODO: not yet implemented
 	//	go sniffer.StartTCP(ws, l)
