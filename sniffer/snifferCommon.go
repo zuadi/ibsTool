@@ -1,6 +1,7 @@
 package sniffer
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"sync"
@@ -97,13 +98,13 @@ func processPayload(payload []byte, srcIP string, dstIP string, isDstPort502 boo
 				}
 			}
 
-			frameJSON, _ := jsonMarshal(frame)
+			frameJSON, _ := json.Marshal(frame)
 			ws.Broadcast(wsModels.TextMessage, frameJSON)
 		}
 	}
 
 	globalStats.TopBytes = getTopBytes()
-	statsJSON, _ := jsonMarshal(map[string]any{
+	statsJSON, _ := json.Marshal(map[string]any{
 		"type":       "stats",
 		"requests":   globalStats.Requests,
 		"responses":  globalStats.Responses,
