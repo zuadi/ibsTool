@@ -8,6 +8,9 @@
     <script src="/nav-drawer.js" defer></script>
 </head>
 <body class="bg-gray-950 text-gray-100 font-sans p-4 sm:p-6 sm:pl-16 min-h-screen">
+    <!--Error container-->
+    <div id="error-message" style="display: none; color: red; background-color: #ffe6e6; padding: 10px; border: 1px solid red; margin-bottom: 1rem; border-radius: 8px;">
+    </div>
     <nav-drawer></nav-drawer>
 
     <div class="max-w-7xl mx-auto space-y-6">
@@ -201,7 +204,8 @@
                 <div>
                     <label class="block text-gray-400 mb-1">STOP BITS</label>
                     <select id="cfg-stopbits" class="w-full bg-gray-950 border border-gray-800 text-sky-400 rounded-lg p-2.5 focus:outline-none focus:border-emerald-500">
-                        <option value="1" selected>1 Bit</option>
+                        <option value="0" selected>1 Bit</option>
+                        <option value="0" selected>1.5 Bit</option>
                         <option value="2">2 Bits</option>
                     </select>
                 </div>
@@ -270,7 +274,23 @@
 
         function handleWebSocketMessage(event) {
             const data = JSON.parse(event.data);
-            
+        
+            if (data.service !== "rtu"){
+                return
+            }
+
+            if (data.error){
+                const errorDiv =document.getElementById('error-message');
+                errorDiv.textContent = data.error;
+                errorDiv.style.display = 'block';
+                // Automatically hide after 10 seconds (10000 milliseconds)
+                errorTimeout = setTimeout(() => {
+                    clearError();
+                }, 10000);
+                isConnected = false
+                return
+            }
+
             if (data.action) {
                 const btn = document.getElementById('connect-btn');
                 if (data.action === "connect") {
@@ -288,9 +308,9 @@
             }
 
             if (data.type === "stats") {
-                document.getElementById('stat-req').innerText = data.requests;
-                document.getElementById('stat-res').innerText = data.responses;
-                document.getElementById('stat-exc').innerText = data.exceptions;
+                document.getElementById('stat-req').innerText = data.counter.requests;
+                document.getElementById('stat-res').innerText = data.counter.responses;
+                document.getElementById('stat-exc').innerText = data.counter.exceptions;
 
                 const graphContainer = document.getElementById('byte-graph');
                 graphContainer.innerHTML = '';
@@ -557,7 +577,14 @@
 
         function saveAndApplySettings() {
             const cfg = updatePreviewLabel();
-            document.getElementById('config-summary').innerText = `${cfg.baud} / ${cfg.data_bits}${cfg.parity}${cfg.stop_bits}`;
+            let stopbit = '1'
+            
+            switch (cfg.stop_bits) {
+                case 1: stopbit = '1.5'
+                case 2: stopbit = '2'
+            }
+
+            document.getElementById('config-summary').innerText = `${cfg.baud} / ${cfg.data_bits}${cfg.parity}${stopbit}`;
             document.getElementById('waveform-baud').innerText = `${cfg.baud} bps`;
             document.getElementById('waveform-framing').innerText = `${cfg.data_bits}${cfg.parity}${cfg.stop_bits}`;
             closeSettingsModal();
@@ -569,6 +596,7 @@
         function getFullSerialPayload(actionType = "connect") {
             const cfg = updatePreviewLabel();
             return {
+                service: "rtu",
                 action: actionType,
                 port: document.getElementById('port-select').value,
                 baudrate: cfg.baud,
@@ -691,6 +719,12 @@
                 });
                 currentX += 6;
             });
+        }
+
+        function clearError(){
+            const errorDiv = document.getElementById('error-message');
+            errorDiv.textContent = '';
+            errorDiv.style.display = 'none'
         }
     </script>
 </body>

@@ -109,7 +109,7 @@
 
     <script>
         const wsScheme = window.location.protocol === "https:" ? "wss://" : "ws://";
-        const socket = new WebSocket(wsScheme + window.location.host + "/ws/htop");
+        const socket = new WebSocket(wsScheme + window.location.host + "/ws");
 
         const cpuPanel = document.getElementById('cpu-panel');
         const memBar = document.getElementById('mem-bar');
@@ -137,6 +137,17 @@
         let cpuSortAsc = true;        // default ascending core ID
 
         let filterRegex = null;
+
+        // Gracefully close WebSocket when leaving or closing the page
+        window.addEventListener('beforeunload', () => {
+            const payload = {
+                service: "htop",
+                action: "disconnect"
+            }
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                socket.send(JSON.stringify(payload));
+            }
+        });
 
         // Dispatches the newly configured window refresh parameter over standard POST endpoint
         function sendIntervalUpdate(ms) {

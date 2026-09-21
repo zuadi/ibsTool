@@ -3,6 +3,7 @@ package htop
 import (
 	"encoding/json"
 	"fmt"
+	"ibsTool/logging"
 	"runtime"
 	"time"
 
@@ -17,6 +18,7 @@ import (
 
 // SystemStats payload to send over WebSocket
 type SystemStats struct {
+	Service      string        `json:"service"`
 	CPUCount     int           `json:"cpu_count"`
 	CPULoad      []float64     `json:"cpu_load"`
 	MemTotal     uint64        `json:"mem_total"`
@@ -40,25 +42,57 @@ type ProcessTask struct {
 }
 
 type HTop struct {
-	ticker *time.Ticker
+	websocket   *wsModels.WSClient
+	ticker      *time.Ticker
+	logger      *logging.Logger
+	clientCount int
 }
 
-func NewHtopProcess() *HTop {
-	return &HTop{}
+func NewHtopProcess(ws *wsModels.WSClient, l *logging.Logger) *HTop {
+	h := &HTop{websocket: ws, logger: l}
+
+	ws.Listen(func(data any) {
+		d, ok := data.([]byte)
+		if !ok {
+			l.BroadcastLog("error: wroing datatype not []byte")
+		}
+		var jsonData struct {
+			Service string `json:"service"`
+			Action  string `json:"action"`
+		}
+
+		err := json.Unmarshal(d, &jsonData)
+		if err != nil {
+			l.BroadcastLog(err)
+		}
+
+		if jsonData.Service != "htop" {
+			return
+		} else if jsonData.Action == "disconnect" {
+			h.clientCount--
+			if h.clientCount == 0 {
+				h.Stop()
+			}
+		}
+	})
+
+	return h
 }
 
-func (h *HTop) Start(ws *wsModels.WSClient) {
+func (h *HTop) Start() {
+	h.clientCount++
 	if h.ticker != nil {
 		return
 	}
 	h.ticker = time.NewTicker(1 * time.Second)
-	defer h.Stop()
+
+	h.logger.BroadcastLog("start htop")
 
 	for range h.ticker.C {
 		stats := getSystemMetrics()
 		payload, _ := json.Marshal(stats)
 
-		ws.Broadcast(wsModels.TextMessage, payload)
+		h.websocket.Broadcast(wsModels.TextMessage, payload)
 	}
 }
 
@@ -67,6 +101,7 @@ func (h *HTop) ChangeInterval(interval int) {
 }
 
 func (h *HTop) Stop() {
+	h.logger.BroadcastLog("stop htop")
 	h.ticker.Stop()
 }
 
@@ -147,6 +182,7 @@ func getSystemMetrics() SystemStats {
 	}
 
 	return SystemStats{
+		Service:      "htop",
 		CPUCount:     numCPU,
 		CPULoad:      cpuLoads,
 		MemTotal:     memTotal,

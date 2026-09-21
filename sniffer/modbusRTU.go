@@ -47,7 +47,7 @@ func NewModbusRTUSniffer(ws *wsModels.WSClient, l *logging.Logger) (*ModbusRTUSn
 		sniffer.mu.RLock()
 		currentState := sniffer.state
 		sniffer.mu.RUnlock()
-		wsClient.Answer(wsModels.TextMessage, []byte(`{"action":"`+currentState+`"}`))
+		wsClient.Answer(wsModels.TextMessage, []byte(`{"service":"rtu", "action":"`+currentState+`"}`))
 	}
 
 	configPath := "./config/modbusRTU.yml"
@@ -83,6 +83,10 @@ func NewModbusRTUSniffer(ws *wsModels.WSClient, l *logging.Logger) (*ModbusRTUSn
 			sniffer.logger.BroadcastLog(err)
 			return
 		}
+		fmt.Println(200, settings)
+		if settings.Service != "rtu" {
+			return
+		}
 
 		var parity Parity
 		parity.SetParity(settings.Parity)
@@ -92,12 +96,14 @@ func NewModbusRTUSniffer(ws *wsModels.WSClient, l *logging.Logger) (*ModbusRTUSn
 			sniffer.logger.BroadcastLog("disconnecting modbus rtu sniffer")
 			if err := sniffer.Stop(); err != nil {
 				sniffer.logger.BroadcastLog(err)
+				ws.Broadcast(wsModels.TextMessage, []byte(`{"service":"rtu", "error":"`+err.Error()+`"}`))
 			}
 		case CONNECT:
 			sniffer.logger.BroadcastLog("connecting modbus rtu sniffer")
 			go func() {
 				if err := sniffer.Start(settings.Port, settings.DecodeMode, settings.BaudRate, parity, settings.Databits, StopBits(settings.Stopbits)); err != nil {
 					sniffer.logger.BroadcastLog(err)
+					ws.Broadcast(wsModels.TextMessage, []byte(`{"service":"rtu", "error":"`+err.Error()+`"}`))
 				}
 			}()
 		case CONFIG:
@@ -105,10 +111,14 @@ func NewModbusRTUSniffer(ws *wsModels.WSClient, l *logging.Logger) (*ModbusRTUSn
 			go func() {
 				if err := sniffer.Stop(); err != nil {
 					sniffer.logger.BroadcastLog(err)
+					ws.Broadcast(wsModels.TextMessage, []byte(`{"service":"rtu", "error":"`+err.Error()+`"}`))
 				}
+
 				time.Sleep(200 * time.Millisecond)
+
 				if err := sniffer.Start(settings.Port, settings.DecodeMode, settings.BaudRate, parity, settings.Databits, StopBits(settings.Stopbits)); err != nil {
 					sniffer.logger.BroadcastLog(err)
+					ws.Broadcast(wsModels.TextMessage, []byte(`{"service":"rtu", "error":"`+err.Error()+`"}`))
 				}
 			}()
 		case RESETSTAT:
@@ -161,7 +171,7 @@ func (rtu *ModbusRTUSniffer) Start(portName string, decodeMode string, baudRate 
 	rtu.state = CONNECT
 	rtu.mu.Unlock()
 
-	rtu.webSocket.Broadcast(wsModels.TextMessage, []byte(`{"action":"`+CONNECT+`"}`))
+	rtu.webSocket.Broadcast(wsModels.TextMessage, []byte(`{"service":"rtu", "action":"`+CONNECT+`"}`))
 	rtu.logger.BroadcastLog(fmt.Sprintf("⚡ Sniffing Modbus RTU line on %s at %d baud...", portName, baudRate))
 
 	defer func() {
@@ -174,7 +184,7 @@ func (rtu *ModbusRTUSniffer) Start(portName string, decodeMode string, baudRate 
 		rtu.cancel = nil
 		rtu.mu.Unlock()
 
-		rtu.webSocket.Broadcast(wsModels.TextMessage, []byte(`{"action":"`+DISCONNECT+`"}`))
+		rtu.webSocket.Broadcast(wsModels.TextMessage, []byte(`{"service":"rtu", "action":"`+DISCONNECT+`"}`))
 	}()
 
 	buf := make([]byte, 256)
@@ -193,8 +203,10 @@ func (rtu *ModbusRTUSniffer) Start(portName string, decodeMode string, baudRate 
 	}
 
 	for {
+
 		select {
 		case <-ctx.Done():
+			fmt.Println(300)
 			return nil
 
 		case <-idleTimer.C:
@@ -209,7 +221,7 @@ func (rtu *ModbusRTUSniffer) Start(portName string, decodeMode string, baudRate 
 					frameBuffer = nil
 				}
 			}
-
+			fmt.Println(400)
 		default:
 			n, err := rtu.serialPort.Read(buf)
 			if err != nil {
@@ -228,7 +240,7 @@ func (rtu *ModbusRTUSniffer) Start(portName string, decodeMode string, baudRate 
 					if consumed == 0 {
 						break // Not enough bytes yet, wait for more data from serial port
 					}
-
+					fmt.Println(500)
 					if validFrame != nil {
 						rtu.processRTUFrame(validFrame)
 					}
@@ -529,7 +541,7 @@ func (rtu *ModbusRTUSniffer) processRTUFrame(payload []byte) {
 	if fcText == "" {
 		if funcCode >= 0x80 {
 			fcText = fmt.Sprintf("Exception Error (0x%02X)", payload[2])
-			rtu.counter.Exeptions++
+			rtu.counter.Exceptions++
 		} else {
 			fcText = "Unknown"
 		}
@@ -548,6 +560,7 @@ func (rtu *ModbusRTUSniffer) processRTUFrame(payload []byte) {
 	decodedPayload := decodeDataPayload(funcCode, payload, isResponse)
 
 	frame := models.ModbusRTUFrame{
+		Service:        "rtu",
 		Timestamp:      timestamp,
 		Hex:            fmt.Sprintf("%X", payload),
 		Type:           typ,

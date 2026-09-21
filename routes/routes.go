@@ -19,15 +19,14 @@ import (
 
 func SetRoutes(s *webServer.WebServer, l *logging.Logger) error {
 
-	htopTask := htop.NewHtopProcess()
-
 	ws := s.NewWebSocket("/ws")
-	wshtop := s.NewWebSocket("/ws/htop")
 
 	_, err := sniffer.NewModbusRTUSniffer(ws, l)
 	if err != nil {
 		return err
 	}
+
+	htopTask := htop.NewHtopProcess(ws, l)
 
 	// TODO: not yet implemented
 	//	go sniffer.StartTCP(ws, l)
@@ -136,7 +135,7 @@ func SetRoutes(s *webServer.WebServer, l *logging.Logger) error {
 
 	htopGroup := s.NewGroup("/htop")
 	htopGroup.Get("/", func(ctx wsModels.Context) {
-		go htopTask.Start(wshtop)
+		go htopTask.Start()
 		w := ctx.GetResponseWriter()
 		tmpl, err := template.ParseFiles("./html/htop.html")
 		if err != nil {
@@ -218,7 +217,7 @@ func SetRoutes(s *webServer.WebServer, l *logging.Logger) error {
 	s.ServeFile("/nav-drawer.js", "./html/nav-drawer.js")
 	s.ServeFile("/tailwind.js", "./html/tailwind.cdn.js")
 
-	l.BroadcastLog("🚀 Industrial Monitor Listening live at http://localhost:8000")
+	l.BroadcastLog("🚀 Industrial Monitor Listening live")
 
 	if err := s.ListenHttp(); err != nil {
 		log.Fatal(err)
