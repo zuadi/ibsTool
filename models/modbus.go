@@ -15,7 +15,7 @@ type ModbusFrame struct {
 }
 
 type ModbusRTUFrame struct {
-	Service        string
+	Service        string   `json:"service"`
 	Timestamp      string   `json:"timestamp"`
 	Hex            string   `json:"hex"`
 	BytesList      []string `json:"bytes_list"`
