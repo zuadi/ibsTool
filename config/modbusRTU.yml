@@ -1,6 +1,0 @@
-port: /dev/cu.wlan-debug
-decodeMode: ""
-baudrate: 9600
-databits: 8
-parity: None
-stopbits: 0
