@@ -3,6 +3,7 @@ package models
 type Settings struct {
 	Service    string `json:"service" yaml:"-"`
 	Action     string `json:"action" yaml:"-"`
+	State      string `json:"state,omitempty" yaml:"-"`
 	Port       string `json:"port" yaml:"port"`
 	DecodeMode string `json:"decodeMode" yaml:"decodeMode"`
 	BaudRate   int    `json:"baudrate" yaml:"baudrate"`

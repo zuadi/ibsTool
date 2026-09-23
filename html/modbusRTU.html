@@ -239,7 +239,6 @@
         const ctx = canvas.getContext('2d');
 
         initializeCanvasBlank();
-        fetchPorts();
         connectWebSocket();
 
         // -------------------------------------------------------------
@@ -254,6 +253,7 @@
                 reconnectAttempts = 0;
                 wsBadge.className = "px-3 py-1 bg-emerald-950/80 text-emerald-400 rounded-full text-xs font-mono border border-emerald-800/80 shadow-inner flex items-center gap-2";
                 wsBadge.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> WS ONLINE';
+                fetchPorts();
             };
 
             socket.onmessage = handleWebSocketMessage;
@@ -292,18 +292,35 @@
             }
 
             if (data.action) {
-                const btn = document.getElementById('connect-btn');
-                if (data.action === "connect") {
-                    btn.innerText = "Disconnect Engine";
-                    btn.className =
-                        "flex-1 md:flex-none bg-rose-600 hover:bg-rose-500 text-white font-mono text-xs font-bold px-5 py-2.5 rounded-lg transition shadow-lg shadow-rose-950/50";
-                    isConnected = true;
-                } else if (data.action === "disconnect") {
-                    btn.innerText = "Connect Engine";
-                    btn.className =
-                        "flex-1 md:flex-none bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-xs font-bold px-5 py-2.5 rounded-lg transition shadow-lg shadow-emerald-950/50";
-                    isConnected = false;
+                
+                if (data.action === "init") {
+                    updateConnectButton(data.state)
+
+                    // 1. Handle port selection
+                    fetchPorts(data.port);
+
+                    // 2. Set decoder mode
+                    document.getElementById('decoder-mode').value = data.decodeMode;
+
+                    // 3. Populate modal settings inputs from backend init data
+                    if (data.baudrate) document.getElementById('cfg-baud').value = data.baudrate;
+                    if (data.databits) document.getElementById('cfg-databits').value = data.databits;
+                    if (data.parity) document.getElementById('cfg-parity').value = data.parity;
+                    if (data.stopbits !== undefined) document.getElementById('cfg-stopbits').value = data.stopbits;
+
+                    // 4. Update the header config summary badge and waveform labels
+                    const baud = data.baudrate || 9600;
+                    const dataBits = data.databits || 8;
+                    const parity = data.parity || 'None';
+                    const stopBits = data.stopbits || 1;
+
+                    document.getElementById('config-summary').innerText = `${baud} / ${dataBits}${parity}${stopBits}`;
+                    document.getElementById('waveform-baud').innerText = `${baud} bps`;
+                    document.getElementById('waveform-framing').innerText = `${dataBits}${parity}${stopBits}`;
+                } else{
+                    updateConnectButton(data.action)
                 }
+                
                 return;
             }
 
@@ -344,6 +361,22 @@
             }
         }
 
+
+        function updateConnectButton(state){
+            const btn = document.getElementById('connect-btn');
+
+            if (state === "connect") {
+                btn.innerText = "Disconnect Engine";
+                btn.className =
+                    "flex-1 md:flex-none bg-rose-600 hover:bg-rose-500 text-white font-mono text-xs font-bold px-5 py-2.5 rounded-lg transition shadow-lg shadow-rose-950/50";
+                isConnected = true;
+            } else if (state === "disconnect") {
+                btn.innerText = "Connect Engine";
+                btn.className =
+                    "flex-1 md:flex-none bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-xs font-bold px-5 py-2.5 rounded-lg transition shadow-lg shadow-emerald-950/50";
+                isConnected = false;
+            } 
+        }
         // -------------------------------------------------------------
         // Modbus RTU Logic Dissection Track
         // -------------------------------------------------------------
@@ -625,7 +658,7 @@
             }
         }
 
-        async function fetchPorts() {
+        async function fetchPorts(selectedPort = null) {
             const select = document.getElementById('port-select');
             try {
                 const res = await fetch('rtu/ports');
@@ -643,6 +676,12 @@
                     opt.innerText = p.label || p.port;
                     select.appendChild(opt);
                 });
+
+                // Select the target port once options are rendered
+                if (selectedPort) {
+                    select.value = selectedPort;
+                    select.dispatchEvent(new Event('change'));
+                }
             } catch(e) {
                 select.innerHTML = '<option value="">Failed to list ports</option>';
             }

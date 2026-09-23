@@ -20,6 +20,7 @@ import (
 func SetRoutes(s *webServer.WebServer, l *logging.Logger) error {
 
 	ws := s.NewWebSocket("/ws")
+
 	wsHtop := s.NewWebSocket("/wshtop")
 
 	_, err := sniffer.NewModbusRTUSniffer(ws, l)

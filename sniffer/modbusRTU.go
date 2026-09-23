@@ -17,6 +17,8 @@ import (
 )
 
 const (
+	RTU        = "rtu"
+	INIT       = "init"
 	CONNECT    = "connect"
 	DISCONNECT = "disconnect"
 	CONFIG     = "config"
@@ -43,13 +45,6 @@ func NewModbusRTUSniffer(ws *wsModels.WSClient, l *logging.Logger) (*ModbusRTUSn
 		logger:    l,
 	}
 
-	ws.NewConnection = func(wsClient *wsModels.WSClient) {
-		sniffer.mu.RLock()
-		currentState := sniffer.state
-		sniffer.mu.RUnlock()
-		wsClient.Answer(wsModels.TextMessage, []byte(`{"service":"rtu", "action":"`+currentState+`"}`))
-	}
-
 	configPath := "./config/modbusRTU.yml"
 	absolutePath, _ := filepath.Abs(configPath)
 	l.BroadcastLog("attempt to open config: " + absolutePath)
@@ -59,18 +54,24 @@ func NewModbusRTUSniffer(ws *wsModels.WSClient, l *logging.Logger) (*ModbusRTUSn
 		l.BroadcastLog("config file '" + absolutePath + "' not found use default")
 	}
 
-	ws.NewConnection = func(ws *wsModels.WSClient) {
+	ws.NewConnection = func(wsClient *wsModels.WSClient) {
+		sniffer.mu.RLock()
+		defer sniffer.mu.RUnlock()
 		if settings == nil {
+			wsClient.Answer(wsModels.TextMessage, models.SetServiceAction(RTU, sniffer.state))
 			return
 		}
+
+		settings.Service = RTU
+		settings.Action = INIT
+		settings.State = sniffer.state
 
 		b, err := json.Marshal(settings)
 		if err != nil {
 			sniffer.logger.BroadcastLog(err)
 			return
 		}
-
-		ws.Answer(wsModels.TextMessage, b)
+		wsClient.Answer(wsModels.TextMessage, b)
 	}
 	ws.Listen(func(data any) {
 		d, ok := data.([]byte)
@@ -84,7 +85,7 @@ func NewModbusRTUSniffer(ws *wsModels.WSClient, l *logging.Logger) (*ModbusRTUSn
 			return
 		}
 
-		if settings.Service != "rtu" {
+		if settings.Service != RTU {
 			return
 		}
 
@@ -96,14 +97,14 @@ func NewModbusRTUSniffer(ws *wsModels.WSClient, l *logging.Logger) (*ModbusRTUSn
 			sniffer.logger.BroadcastLog("disconnecting modbus rtu sniffer")
 			if err := sniffer.Stop(); err != nil {
 				sniffer.logger.BroadcastLog(err)
-				ws.Broadcast(wsModels.TextMessage, []byte(`{"service":"rtu", "error":"`+err.Error()+`"}`))
+				ws.Broadcast(wsModels.TextMessage, models.SetServiceError(RTU, err))
 			}
 		case CONNECT:
 			sniffer.logger.BroadcastLog("connecting modbus rtu sniffer")
 			go func() {
 				if err := sniffer.Start(settings.Port, settings.DecodeMode, settings.BaudRate, parity, settings.Databits, StopBits(settings.Stopbits)); err != nil {
 					sniffer.logger.BroadcastLog(err)
-					ws.Broadcast(wsModels.TextMessage, []byte(`{"service":"rtu", "error":"`+err.Error()+`"}`))
+					ws.Broadcast(wsModels.TextMessage, models.SetServiceError(RTU, err))
 				}
 			}()
 		case CONFIG:
@@ -111,14 +112,14 @@ func NewModbusRTUSniffer(ws *wsModels.WSClient, l *logging.Logger) (*ModbusRTUSn
 			go func() {
 				if err := sniffer.Stop(); err != nil {
 					sniffer.logger.BroadcastLog(err)
-					ws.Broadcast(wsModels.TextMessage, []byte(`{"service":"rtu", "error":"`+err.Error()+`"}`))
+					ws.Broadcast(wsModels.TextMessage, models.SetServiceError(RTU, err))
 				}
 
 				time.Sleep(200 * time.Millisecond)
 
 				if err := sniffer.Start(settings.Port, settings.DecodeMode, settings.BaudRate, parity, settings.Databits, StopBits(settings.Stopbits)); err != nil {
 					sniffer.logger.BroadcastLog(err)
-					ws.Broadcast(wsModels.TextMessage, []byte(`{"service":"rtu", "error":"`+err.Error()+`"}`))
+					ws.Broadcast(wsModels.TextMessage, models.SetServiceError(RTU, err))
 				}
 			}()
 		case RESETSTAT:
@@ -171,7 +172,7 @@ func (rtu *ModbusRTUSniffer) Start(portName string, decodeMode string, baudRate 
 	rtu.state = CONNECT
 	rtu.mu.Unlock()
 
-	rtu.webSocket.Broadcast(wsModels.TextMessage, []byte(`{"service":"rtu", "action":"`+CONNECT+`"}`))
+	rtu.webSocket.Broadcast(wsModels.TextMessage, models.SetServiceAction(RTU, CONNECT))
 	rtu.logger.BroadcastLog(fmt.Sprintf("⚡ Sniffing Modbus RTU line on %s at %d baud...", portName, baudRate))
 
 	defer func() {
@@ -184,7 +185,7 @@ func (rtu *ModbusRTUSniffer) Start(portName string, decodeMode string, baudRate 
 		rtu.cancel = nil
 		rtu.mu.Unlock()
 
-		rtu.webSocket.Broadcast(wsModels.TextMessage, []byte(`{"service":"rtu", "action":"`+DISCONNECT+`"}`))
+		rtu.webSocket.Broadcast(wsModels.TextMessage, models.SetServiceAction(RTU, DISCONNECT))
 	}()
 
 	buf := make([]byte, 256)
@@ -206,7 +207,6 @@ func (rtu *ModbusRTUSniffer) Start(portName string, decodeMode string, baudRate 
 
 		select {
 		case <-ctx.Done():
-
 			return nil
 
 		case <-idleTimer.C:
@@ -560,7 +560,7 @@ func (rtu *ModbusRTUSniffer) processRTUFrame(payload []byte) {
 	decodedPayload := decodeDataPayload(funcCode, payload, isResponse)
 
 	frame := models.ModbusRTUFrame{
-		Service:        "rtu",
+		Service:        RTU,
 		Timestamp:      timestamp,
 		Hex:            fmt.Sprintf("%X", payload),
 		Type:           typ,
