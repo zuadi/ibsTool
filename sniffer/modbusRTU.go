@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -26,15 +28,18 @@ const (
 )
 
 type ModbusRTUSniffer struct {
-	serialPort serial.Port
-	webSocket  *wsModels.WSClient
-	timeout    time.Duration
-	logger     *logging.Logger
-	counter    *models.Counter
-	config     *ConfigHandler
-	state      string
-	cancel     context.CancelFunc
-	mu         sync.RWMutex
+	simulation      bool
+	serialPort      serial.Port
+	webSocket       *wsModels.WSClient
+	timeout         time.Duration
+	logger          *logging.Logger
+	counter         *models.Counter
+	config          *ConfigHandler
+	state           string
+	cancel          context.CancelFunc
+	mu              sync.RWMutex
+	lastRequestTime time.Time
+	latence         float64
 }
 
 func NewModbusRTUSniffer(ws *wsModels.WSClient, l *logging.Logger) (*ModbusRTUSniffer, error) {
@@ -134,6 +139,9 @@ func NewModbusRTUSniffer(ws *wsModels.WSClient, l *logging.Logger) (*ModbusRTUSn
 }
 
 func (rtu *ModbusRTUSniffer) Start(portName string, decodeMode string, baudRate int, parity Parity, dataBit int, stopBit StopBits) error {
+
+	rtu.simulation = os.Getenv("MODBUS_RTU_SIMULATION") == "TRUE"
+
 	rtu.mu.Lock()
 	if rtu.state == CONNECT {
 		rtu.mu.Unlock()
@@ -158,14 +166,34 @@ func (rtu *ModbusRTUSniffer) Start(portName string, decodeMode string, baudRate 
 		Stopbits:   int(stopBit),
 	})
 
-	sp, err := serial.Open(portName, mode)
-	if err != nil {
-		rtu.mu.Unlock()
-		return fmt.Errorf("failed to open serial port %s: %v", portName, err)
-	}
+	var serverStream *io.PipeReader
+	var clientStream *io.PipeWriter
 
-	rtu.serialPort = sp
-	rtu.serialPort.SetReadTimeout(rtu.timeout)
+	if rtu.simulation {
+		serverStream, clientStream = io.Pipe()
+		go func() {
+			for {
+				// Sende Request
+				req := simulationRequest()
+				clientStream.Write(req)
+				time.Sleep(50 * time.Millisecond)
+
+				// Sende Response mitzählender Variable
+				resp := simulationResponse()
+				clientStream.Write(resp)
+				time.Sleep(1 * time.Second)
+			}
+		}()
+	} else {
+		sp, err := serial.Open(portName, mode)
+		if err != nil {
+			rtu.mu.Unlock()
+			return fmt.Errorf("failed to open serial port %s: %v", portName, err)
+		}
+
+		rtu.serialPort = sp
+		rtu.serialPort.SetReadTimeout(rtu.timeout)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	rtu.cancel = cancel
@@ -177,10 +205,11 @@ func (rtu *ModbusRTUSniffer) Start(portName string, decodeMode string, baudRate 
 
 	defer func() {
 		rtu.mu.Lock()
-		if rtu.serialPort != nil {
+		if !rtu.simulation && rtu.serialPort != nil {
 			rtu.serialPort.Close()
 			rtu.serialPort = nil
 		}
+
 		rtu.state = DISCONNECT
 		rtu.cancel = nil
 		rtu.mu.Unlock()
@@ -223,7 +252,15 @@ func (rtu *ModbusRTUSniffer) Start(portName string, decodeMode string, baudRate 
 			}
 
 		default:
-			n, err := rtu.serialPort.Read(buf)
+			var n int
+			var err error
+
+			if rtu.simulation {
+				n, err = serverStream.Read(buf)
+			} else {
+				n, err = rtu.serialPort.Read(buf)
+			}
+
 			if err != nil {
 				if ctx.Err() != nil {
 					return nil
@@ -236,7 +273,9 @@ func (rtu *ModbusRTUSniffer) Start(portName string, decodeMode string, baudRate 
 				frameBuffer = append(frameBuffer, buf[:n]...)
 
 				for len(frameBuffer) >= 4 {
+
 					consumed, validFrame := extractNextModbusFrame(frameBuffer)
+
 					if consumed == 0 {
 						break // Not enough bytes yet, wait for more data from serial port
 					}
@@ -270,7 +309,7 @@ func (rtu *ModbusRTUSniffer) Stop() error {
 		rtu.cancel()
 	}
 
-	if rtu.serialPort != nil {
+	if !rtu.simulation && rtu.serialPort != nil {
 		err := rtu.serialPort.Close()
 		rtu.serialPort = nil
 		return err
@@ -284,7 +323,7 @@ func (rtu *ModbusRTUSniffer) SetTimeout(t time.Duration) {
 	defer rtu.mu.Unlock()
 
 	rtu.timeout = t
-	if rtu.serialPort != nil {
+	if !rtu.simulation && rtu.serialPort != nil {
 		rtu.serialPort.SetReadTimeout(t)
 	}
 }
@@ -348,7 +387,6 @@ func extractNextModbusFrame(buf []byte) (int, []byte) {
 
 	case 0x05, 0x06:
 		expectedLen = 8
-
 	case 0x0F, 0x10:
 		if len(buf) >= 7 && funcCode == 0x10 {
 			byteCount := int(buf[6])
@@ -385,6 +423,7 @@ func extractNextModbusFrame(buf []byte) (int, []byte) {
 }
 
 func calculateCRC(data []byte) uint16 {
+
 	var crc uint16 = 0xFFFF
 	for _, b := range data {
 		crc ^= uint16(b)
@@ -400,6 +439,7 @@ func calculateCRC(data []byte) uint16 {
 }
 
 func decodeDataPayload(funcCode byte, payload []byte, isResponse bool) []int16 {
+
 	if len(payload) < 4 {
 		return nil
 	}
@@ -532,8 +572,15 @@ func (rtu *ModbusRTUSniffer) processRTUFrame(payload []byte) {
 		typ = "RES"
 		source = fmt.Sprintf("Slave %d", slaveID)
 		destination = "Master"
+
+		if !rtu.lastRequestTime.IsZero() {
+			rtu.latence = float64(time.Since(lastRequestTime).Microseconds()) / 1000.0
+		}
+
 		rtu.counter.Response++
 	} else {
+		rtu.latence = 0
+		rtu.lastRequestTime = time.Now()
 		rtu.counter.Requests++
 	}
 
@@ -574,8 +621,60 @@ func (rtu *ModbusRTUSniffer) processRTUFrame(payload []byte) {
 		IsValidCRC:     isValidCRC,
 		DecodedPayload: decodedPayload,
 		Counter:        rtu.counter,
+		Latency:        rtu.latence,
 	}
 
 	frameJSON, _ := json.Marshal(frame)
 	rtu.webSocket.Broadcast(wsModels.TextMessage, frameJSON)
+}
+
+var simVariables struct {
+	init     bool
+	value    int
+	response bool
+}
+
+var simValue uint16 = 0
+
+func simulationRequest() []byte {
+	// Slave ID (0x01), Function Code (0x03), Start Address (0x00, 0x00), Quantity: 10 registers (0x00, 0x0A)
+	reqBase := []byte{0x01, 0x03, 0x00, 0x00, 0x00, 0x0A}
+	reqCRC := calculateCRC(reqBase)
+	return append(reqBase, byte(reqCRC&0xFF), byte(reqCRC>>8))
+}
+
+func simulationResponse() []byte {
+	respBase := []byte{
+		0x01, // Slave ID
+		0x03, // Function Code
+		0x14, // Byte Count: 10 registers * 2 bytes = 20 bytes (0x14)
+	}
+
+	// Build values for 10 holding registers (indices 0 to 9)
+	registers := make([]uint16, 10)
+	for i := 0; i < 10; i++ {
+		if i == 5 {
+			// The 6th register (index 5) increments over time
+			registers[i] = simValue
+		} else {
+			// Optional: assign standard or placeholder values to the other registers
+			registers[i] = uint16(i * 10)
+		}
+	}
+
+	// Append each register's high and low bytes (Modbus uses Big-Endian)
+	for _, val := range registers {
+		respBase = append(respBase, byte(val>>8), byte(val&0xFF))
+	}
+
+	respCRC := calculateCRC(respBase)
+	frame := append(respBase, byte(respCRC&0xFF), byte(respCRC>>8))
+
+	// Increment simValue for the next cycle (loops back at 100)
+	simValue++
+	if simValue > 100 {
+		simValue = 0
+	}
+
+	return frame
 }

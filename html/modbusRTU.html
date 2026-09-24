@@ -147,7 +147,7 @@
                     <thead>
                         <tr class="bg-gray-950 text-gray-400 text-xs font-mono border-b border-gray-800">
                             <th class="p-3">Timestamp</th><th class="p-3">Type</th><th class="p-3">Direction</th>
-                            <th class="p-3">Function</th><th class="p-3">Data Payload (Decoded)</th><th class="p-3">Latency</th>
+                            <th class="p-3">Function</th><th class="p-3">Address Quantity</th><th class="p-3">Data Payload (Decoded)</th><th class="p-3">Latency</th>
                         </tr>
                     </thead>
                     <tbody id="packet-rows" class="divide-y divide-gray-800 font-mono text-xs"></tbody>
@@ -500,6 +500,8 @@
             const latencyDisplay = (data.type === 'RES' || data.type === 'RESPONSE') ? (data.latency || 0) + ' ms' : '-';
             
             let integerString = '<span class="text-gray-600">None</span>';
+            let detailsDisplay = '-'; // Default for non-requests or when details aren't present
+            
             const decoded = data.decoded_payload || data.DecodedPayload;
 
             if (data.exception) {
@@ -512,7 +514,24 @@
                 integerString = `<span class="text-amber-400 font-bold">${fallbackDecoded}</span>`;
             }
 
-            tr.innerHTML = ' <td class="p-3 text-gray-500">' + data.timestamp + '</td><td class="p-3">' + typeBadge + '</td><td class="p-3 text-gray-300">' + data.source + ' -> ' + data.destination + '</td><td class="p-3 text-emerald-400">' + data.fc + '</td><td class="p-3">' + integerString + '</td><td class="p-3 text-gray-400">' + latencyDisplay + '</td> ';
+            // Extract Start Address and Quantity/Value if it's a request packet with enough bytes
+            const isReq = (data.type === 'REQ' || data.type === 'REQUEST');
+            const raw = data.raw_ints || [];
+            if (isReq && raw.length >= 6) {
+                const startAddress = (raw[2] << 8) | raw[3];
+                const quantityOrValue = (raw[4] << 8) | raw[5];
+                detailsDisplay = `<span class="text-cyan-300">Addr: ${startAddress}, Qty: ${quantityOrValue}</span>`;
+                integerString = '-'
+            }
+
+            tr.innerHTML = ' <td class="p-3 text-gray-500">' + data.timestamp + '</td>' +
+                           '<td class="p-3">' + typeBadge + '</td>' +
+                           '<td class="p-3 text-gray-300">' + data.source + ' -> ' + data.destination + '</td>' +
+                           '<td class="p-3 text-emerald-400">' + data.fc + '</td>' +
+                           '<td class="p-3">' + detailsDisplay + '</td>' +
+                           '<td class="p-3">' + integerString + '</td>' +
+                           '<td class="p-3 text-gray-400">' + latencyDisplay + '</td> ';
+                           
             rows.insertBefore(tr, rows.firstChild);
             if(rows.children.length > 50) rows.lastChild.remove();
         }
