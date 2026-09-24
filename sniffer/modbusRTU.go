@@ -624,28 +624,47 @@ var simVariables struct {
 	response bool
 }
 
-var simValue int
+var simValue uint16 = 0
 
 func simulationRequest() []byte {
-	reqBase := []byte{0x01, 0x03, 0x00, 0x00, 0x00, 0x01}
+	// Slave ID (0x01), Function Code (0x03), Start Address (0x00, 0x00), Quantity: 10 registers (0x00, 0x0A)
+	reqBase := []byte{0x01, 0x03, 0x00, 0x00, 0x00, 0x0A}
 	reqCRC := calculateCRC(reqBase)
 	return append(reqBase, byte(reqCRC&0xFF), byte(reqCRC>>8))
 }
 
 func simulationResponse() []byte {
 	respBase := []byte{
-		0x01,                  // Slave ID
-		0x03,                  // Function Code
-		0x02,                  // Byte Count
-		byte(simValue >> 8),   // High Byte (zählt hoch)
-		byte(simValue & 0xFF), // Low Byte
+		0x01, // Slave ID
+		0x03, // Function Code
+		0x14, // Byte Count: 10 registers * 2 bytes = 20 bytes (0x14)
 	}
+
+	// Build values for 10 holding registers (indices 0 to 9)
+	registers := make([]uint16, 10)
+	for i := 0; i < 10; i++ {
+		if i == 5 {
+			// The 6th register (index 5) increments over time
+			registers[i] = simValue
+		} else {
+			// Optional: assign standard or placeholder values to the other registers
+			registers[i] = uint16(i * 10)
+		}
+	}
+
+	// Append each register's high and low bytes (Modbus uses Big-Endian)
+	for _, val := range registers {
+		respBase = append(respBase, byte(val>>8), byte(val&0xFF))
+	}
+
 	respCRC := calculateCRC(respBase)
 	frame := append(respBase, byte(respCRC&0xFF), byte(respCRC>>8))
 
+	// Increment simValue for the next cycle (loops back at 100)
 	simValue++
 	if simValue > 100 {
 		simValue = 0
 	}
+
 	return frame
 }
