@@ -6,6 +6,7 @@ import (
 	"ibsTool/logging"
 	"ibsTool/models"
 	"ibsTool/sniffer"
+	systeminfo "ibsTool/systemInfo"
 	"ibsTool/tailscale"
 	"ibsTool/utils"
 	"log"
@@ -54,23 +55,8 @@ func SetRoutes(s *webServer.WebServer, l *logging.Logger) error {
 	})
 
 	s.Get("/system/info", func(ctx wsModels.Context) {
-		systemInfo := &models.System{}
-
-		ethernet, err := utils.GetActiveEthernet()
-		if err == nil {
-			systemInfo.Lan = ethernet
-		} else {
-			l.BroadcastLog(err)
-		}
-
-		wlan, err := utils.GetActiveInterfaceByName("wlan")
-		if err == nil {
-			systemInfo.Wlan = wlan
-		} else {
-			l.BroadcastLog(err)
-		}
-
-		ctx.RespondJson(http.StatusOK, systemInfo)
+		sI := systeminfo.GetInfo()
+		ctx.RespondJson(http.StatusOK, sI)
 	})
 
 	modbus := s.NewGroup("/modbus")

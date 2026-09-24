@@ -89,7 +89,7 @@ func (h *HTop) Start() {
 	h.logger.BroadcastLog("start htop")
 
 	for range h.ticker.C {
-		stats := getSystemMetrics()
+		stats := GetSystemMetrics()
 		payload, _ := json.Marshal(stats)
 
 		h.websocket.Broadcast(wsModels.TextMessage, payload)
@@ -106,7 +106,7 @@ func (h *HTop) Stop() {
 }
 
 // Fetches host kernel stats (Includes safe fallback simulation logic if running outside Linux)
-func getSystemMetrics() SystemStats {
+func GetSystemMetrics() SystemStats {
 	numCPU := runtime.NumCPU()
 	cpuLoads, _ := cpu.Percent(0, true)
 

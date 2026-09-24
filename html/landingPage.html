@@ -40,20 +40,21 @@
                     🌐
                 </div>
                 <div class="flex-1 min-w-0">
-                    <p class="text-gray-500 text-[10px] font-mono uppercase tracking-wider">IPv4 Interface (eth0)</p>
-                    <p id="ip-eth0" class="text-lg font-mono font-bold text-cyan-400 truncate">192.168.1.150</p>
-                    <p class="text-[11px] text-gray-500 font-mono">Subnet: 255.255.255.0</p>
+                    <p id="name-lan" class="text-gray-500 text-[10px] font-mono uppercase tracking-wider">IPv4 Interface (eth0)</p>
+                    <p id="ip-lan" class="text-lg font-mono font-bold text-cyan-400 truncate">192.168.1.150</p>
+                    <p id="sub-lan" class="text-[11px] text-gray-500 font-mono">Subnet: 255.255.255.0</p>
                 </div>
             </div>
 
             <!-- WLAN Access Point Card -->
-            <div class="bg-gray-900 p-4 rounded-xl border border-gray-800 flex items-center gap-4 shadow-xl">
-                <div class="p-3 bg-gray-950 border border-gray-800 rounded-lg text-amber-400 font-mono text-xl">
+            <div  class="bg-gray-900 p-4 rounded-xl border border-gray-800 flex items-center gap-4 shadow-xl">
+                <div  class="p-3 bg-gray-950 border border-gray-800 rounded-lg text-amber-400 font-mono text-xl">
                     📡
                 </div>
-                <div class="flex-1 min-w-0">
-                    <p class="text-gray-500 text-[10px] font-mono uppercase tracking-wider">WLAN Access Point (wlan0)</p>
-                    <p id="ip-wlan0" class="text-lg font-mono font-bold text-amber-400 truncate">10.0.0.1</p>
+                <div  class="flex-1 min-w-0">
+                    <p id="name-wlan" class="text-gray-500 text-[10px] font-mono uppercase tracking-wider">WLAN Access Point (wlan0)</p>
+                    <p id="ip-wlan" class="text-lg font-mono font-bold text-amber-400 truncate">10.0.0.1</p>
+                    <p id="sub-wlan" class="text-[11px] text-gray-500 font-mono">Subnet: 255.255.255.0</p>
                     <p class="text-[11px] text-gray-500 font-mono">SSID: <span id="ap-ssid" class="text-gray-300 font-bold">Node_AP_5G</span></p>
                 </div>
             </div>
@@ -64,7 +65,7 @@
                     🔒
                 </div>
                 <div class="flex-1 min-w-0">
-                    <p class="text-gray-500 text-[10px] font-mono uppercase tracking-wider">Tailscale IP (tailscale0)</p>
+                    <p id="name-tailscale" class="text-gray-500 text-[10px] font-mono uppercase tracking-wider">Tailscale IP (tailscale0)</p>
                     <p id="ip-tailscale" class="text-lg font-mono font-bold text-emerald-400 truncate">100.64.0.42</p>
                     <p class="text-[11px] text-gray-500 font-mono">Status: <span class="text-emerald-500 font-bold">Active Mesh</span></p>
                 </div>
@@ -224,22 +225,82 @@
         setInterval(updateClock, 1000);
         updateClock();
 
-        // Optional Backend Data Fetching hook
-        async function fetchNetworkData() {
+        // Fetch and Populate All System & Network Data
+        async function fetchSystemData() {
             try {
-                const res = await fetch('/api/network/status');
+                const res = await fetch('/system/info'); // Point this to your Go backend endpoint
                 if (!res.ok) return;
                 const data = await res.json();
 
-                if (data.eth0) document.getElementById('ip-eth0').innerText = data.eth0;
-                if (data.wlan0) document.getElementById('ip-wlan0').innerText = data.wlan0;
-                if (data.tailscale) document.getElementById('ip-tailscale').innerText = data.tailscale;
+                // 1. Update Network Interfaces & IP Summary
+                if (data.lan) {
+                    document.getElementById('name-lan').innerText = 'IPv4 Interface ('+data.lan.name+')';
+                    document.getElementById('ip-lan').innerText = data.lan.ip;
+                    document.getElementById('sub-lan').innerText = 'Subnet: '+data.lan.subnet;
+                }
+
+                if (data.wlan) {
+                    document.getElementById('ip-wlan').innerText = 'WLAN Access Point ('+data.wlan.name+')';
+                    document.getElementById('ip-wlan').innerText = data.wlan.ip;
+                    document.getElementById('sub-wlan').innerText = 'Subnet: '+data.wlan.subnet;
+                
+                }
+                if (data.tailscale) {
+                    
+                    document.getElementById('name-tailscale').innerText = 'Tailscale IP ('+data.tailscale.name+')';
+                    document.getElementById('ip-tailscale').innerText = data.tailscale.ip;
+                }
                 if (data.ssid) document.getElementById('ap-ssid').innerText = data.ssid;
+
+                // 2. Update Access Point Telemetry Bar
+                if (data.ap_channel) document.getElementById('ap-channel').innerText = data.ap_channel;
+                if (data.clients_count !== undefined) {
+                    document.getElementById('ap-clients-count').innerText = data.clients_count + ' Devices';
+                }
+
+                // 3. Update System Health Gauges (CPU, RAM, Disk)
+                if (data.cpu !== undefined) {
+                    document.getElementById('metric-cpu-val').innerText = data.cpu + '%';
+                    document.getElementById('metric-cpu-bar').style.width = data.cpu + '%';
+                }
+                if (data.ram !== undefined) {
+                    document.getElementById('metric-ram-val').innerText = data.ram + '%';
+                    document.getElementById('metric-ram-bar').style.width = data.ram + '%';
+                }
+                if (data.disk !== undefined) {
+                    document.getElementById('metric-disk-val').innerText = data.disk + '%';
+                    document.getElementById('metric-disk-bar').style.width = data.disk + '%';
+                }
+
+                // 4. Update Connected WLAN Stations Table Dynamically
+                if (data.stations && Array.isArray(data.stations)) {
+                    const tbody = document.getElementById('station-rows');
+                    tbody.innerHTML = '';
+                    
+                    if (data.stations.length === 0) {
+                        tbody.innerHTML = `<tr><td colspan="5" class="p-3 text-center text-gray-500">No active stations connected</td></tr>`;
+                    } else {
+                        data.stations.forEach(st => {
+                            tbody.innerHTML += `
+                                <tr class="hover:bg-gray-850 transition-colors">
+                                    <td class="p-3 text-cyan-400">${st.mac}</td>
+                                    <td class="p-3 text-gray-300">${st.ip}</td>
+                                    <td class="p-3 text-emerald-400">${st.rssi} dBm</td>
+                                    <td class="p-3 text-gray-400">${st.tx_rate}</td>
+                                    <td class="p-3 text-gray-500">${st.connected_time}</td>
+                                </tr>
+                            `;
+                        });
+                    }
+                }
             } catch (e) {
-                // Keep default state on error/offline mode
+                // Fails silently on network drop, preserving last known state
             }
         }
-        fetchNetworkData();
+
+        // Poll every 5 seconds for live updates
+        setInterval(fetchSystemData, 5000);
+        fetchSystemData();
     </script>
 </body>
 </html>

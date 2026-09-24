@@ -229,3 +229,58 @@ func freqToChannel(freq int) int {
 		return 0
 	}
 }
+
+// GetTailscaleAdapter fetches the IP for tailscale0
+func GetTailscaleAdapter() (*models.ActiveAdapter, error) {
+	return GetActiveInterfaceByName("tailscale")
+}
+
+// GetHostapdStations parses connected clients from hostapd control interface
+func GetHostapdStations() ([]models.Station, error) {
+	cmd := exec.Command("hostapd_cli", "all_sta")
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		return nil, err
+	}
+
+	var stations []models.Station
+	var current *models.Station
+
+	lines := strings.Split(out.String(), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.Contains(line, ":") && len(line) == 17 && !strings.Contains(line, "=") {
+			// New MAC address block starts
+			if current != nil {
+				stations = append(stations, *current)
+			}
+			current = &models.Station{Mac: line}
+			continue
+		}
+
+		if current != nil {
+			parts := strings.SplitN(line, "=", 2)
+			if len(parts) == 2 {
+				key, val := parts[0], parts[1]
+				switch key {
+				case "signal":
+					if rssi, err := strconv.Atoi(val); err == nil {
+						current.Rssi = rssi
+					}
+				case "connected_time":
+					if secs, err := strconv.Atoi(val); err == nil {
+						hours := secs / 3600
+						mins := (secs % 3600) / 60
+						current.ConnectedTime = strconv.Itoa(hours) + "h " + strconv.Itoa(mins) + "m"
+					}
+				}
+			}
+		}
+	}
+	if current != nil {
+		stations = append(stations, *current)
+	}
+
+	return stations, nil
+}

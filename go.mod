@@ -5,6 +5,7 @@ go 1.27.1
 require (
 	github.com/google/gopacket v1.1.19
 	github.com/joho/godotenv v1.5.1
+	github.com/shirou/gopsutil v3.21.11+incompatible
 	github.com/shirou/gopsutil/v4 v4.26.6
 	github.com/zuadi/webServer v0.3.1
 	go.bug.st/serial v1.7.1
