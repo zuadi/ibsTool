@@ -28,16 +28,18 @@ const (
 )
 
 type ModbusRTUSniffer struct {
-	simulation bool
-	serialPort serial.Port
-	webSocket  *wsModels.WSClient
-	timeout    time.Duration
-	logger     *logging.Logger
-	counter    *models.Counter
-	config     *ConfigHandler
-	state      string
-	cancel     context.CancelFunc
-	mu         sync.RWMutex
+	simulation      bool
+	serialPort      serial.Port
+	webSocket       *wsModels.WSClient
+	timeout         time.Duration
+	logger          *logging.Logger
+	counter         *models.Counter
+	config          *ConfigHandler
+	state           string
+	cancel          context.CancelFunc
+	mu              sync.RWMutex
+	lastRequestTime time.Time
+	latence         float64
 }
 
 func NewModbusRTUSniffer(ws *wsModels.WSClient, l *logging.Logger) (*ModbusRTUSniffer, error) {
@@ -570,8 +572,15 @@ func (rtu *ModbusRTUSniffer) processRTUFrame(payload []byte) {
 		typ = "RES"
 		source = fmt.Sprintf("Slave %d", slaveID)
 		destination = "Master"
+
+		if !rtu.lastRequestTime.IsZero() {
+			rtu.latence = float64(time.Since(lastRequestTime).Microseconds()) / 1000.0
+		}
+
 		rtu.counter.Response++
 	} else {
+		rtu.latence = 0
+		rtu.lastRequestTime = time.Now()
 		rtu.counter.Requests++
 	}
 
@@ -612,6 +621,7 @@ func (rtu *ModbusRTUSniffer) processRTUFrame(payload []byte) {
 		IsValidCRC:     isValidCRC,
 		DecodedPayload: decodedPayload,
 		Counter:        rtu.counter,
+		Latency:        rtu.latence,
 	}
 
 	frameJSON, _ := json.Marshal(frame)

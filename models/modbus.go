@@ -29,4 +29,5 @@ type ModbusRTUFrame struct {
 	IsValidCRC     bool     `json:"is_valid_crc"`
 	DecodedPayload []int16  `json:"decoded_payload"`
 	Counter        *Counter `json:"counter"`
+	Latency        float64  `json:"latency"`
 }
