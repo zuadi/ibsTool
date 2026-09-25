@@ -47,8 +47,8 @@
             </div>
 
             <!-- WLAN Access Point Card -->
-            <div  class="bg-gray-900 p-4 rounded-xl border border-gray-800 flex items-center gap-4 shadow-xl">
-                <div  class="p-3 bg-gray-950 border border-gray-800 rounded-lg text-amber-400 font-mono text-xl">
+            <div id="wlan-element" class="bg-gray-900 p-4 rounded-xl border border-gray-800 flex items-center gap-4 shadow-xl">
+                <div class="p-3 bg-gray-950 border border-gray-800 rounded-lg text-amber-400 font-mono text-xl">
                     📡
                 </div>
                 <div  class="flex-1 min-w-0">
@@ -60,7 +60,7 @@
             </div>
 
             <!-- Tailscale VPN Mesh Card -->
-            <div class="bg-gray-900 p-4 rounded-xl border border-gray-800 flex items-center gap-4 shadow-xl">
+            <div id="tailscale-element" class="bg-gray-900 p-4 rounded-xl border border-gray-800 flex items-center gap-4 shadow-xl">
                 <div class="p-3 bg-gray-950 border border-gray-800 rounded-lg text-emerald-400 font-mono text-xl">
                     🔒
                 </div>
@@ -75,7 +75,7 @@
         <!-- Access Point Telemetry & Live Metrics -->
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <!-- Left 2 Columns: AP Details & Signal Overview -->
-            <div class="lg:col-span-2 space-y-6">
+            <div id="accessPoint-telemetric" class="lg:col-span-2 space-y-6">
                 <!-- Access Point Details Bar -->
                 <div class="bg-gray-900 rounded-xl border border-gray-800 p-5 shadow-xl space-y-4">
                     <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-2 border-b border-gray-800 pb-3">
@@ -243,12 +243,24 @@
                     document.getElementById('ip-wlan').innerText = 'WLAN Access Point ('+data.wlan.name+')';
                     document.getElementById('ip-wlan').innerText = data.wlan.ip;
                     document.getElementById('sub-wlan').innerText = 'Subnet: '+data.wlan.subnet;
-                
+                    document.getElementById('wlan-element').classList.remove('hidden');
+                    document.getElementById('accessPoint-telemetric').classList.remove('hidden');
+                    document.getElementById('wlan-element').classList.add('flex');
+                    document.getElementById('accessPoint-telemetric').classList.add('flex');
+                } else {
+                    document.getElementById('accessPoint-telemetric').classList.remove('flex');
+                    document.getElementById('wlan-element').classList.remove('flex');
+                    document.getElementById('wlan-element').classList.add('hidden');
+                    document.getElementById('accessPoint-telemetric').classList.add('hidden');
                 }
-                if (data.tailscale) {
-                    
+                if (data.tailscale) {      
                     document.getElementById('name-tailscale').innerText = 'Tailscale IP ('+data.tailscale.name+')';
                     document.getElementById('ip-tailscale').innerText = data.tailscale.ip;
+                    document.getElementById('tailscale-element').classList.remove('hidden');
+                    document.getElementById('tailscale-element').classList.add('flex');
+                } else {
+                    document.getElementById('tailscale-element').classList.remove('flex');
+                    document.getElementById('tailscale-element').classList.add('hidden');
                 }
                 if (data.ssid) document.getElementById('ap-ssid').innerText = data.ssid;
 
