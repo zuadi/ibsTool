@@ -77,6 +77,9 @@ func NewModbusRTUSniffer(ws *wsModels.WSClient, l *logging.Logger) (*ModbusRTUSn
 			return
 		}
 		wsClient.Answer(wsModels.TextMessage, b)
+		if sniffer.state == CONNECT {
+			sniffer.Restart(settings)
+		}
 	}
 	ws.Listen(func(data any) {
 		d, ok := data.([]byte)
@@ -94,9 +97,6 @@ func NewModbusRTUSniffer(ws *wsModels.WSClient, l *logging.Logger) (*ModbusRTUSn
 			return
 		}
 
-		var parity Parity
-		parity.SetParity(settings.Parity)
-
 		switch settings.Action {
 		case DISCONNECT:
 			sniffer.logger.BroadcastLog("disconnecting modbus rtu sniffer")
@@ -107,6 +107,9 @@ func NewModbusRTUSniffer(ws *wsModels.WSClient, l *logging.Logger) (*ModbusRTUSn
 		case CONNECT:
 			sniffer.logger.BroadcastLog("connecting modbus rtu sniffer")
 			go func() {
+				var parity Parity
+				parity.SetParity(settings.Parity)
+
 				if err := sniffer.Start(settings.Port, settings.DecodeMode, settings.BaudRate, parity, settings.Databits, StopBits(settings.Stopbits)); err != nil {
 					sniffer.logger.BroadcastLog(err)
 					ws.Broadcast(wsModels.TextMessage, models.SetServiceError(RTU, err))
@@ -114,19 +117,7 @@ func NewModbusRTUSniffer(ws *wsModels.WSClient, l *logging.Logger) (*ModbusRTUSn
 			}()
 		case CONFIG:
 			sniffer.logger.BroadcastLog("changing configuration for modbus rtu sniffer")
-			go func() {
-				if err := sniffer.Stop(); err != nil {
-					sniffer.logger.BroadcastLog(err)
-					ws.Broadcast(wsModels.TextMessage, models.SetServiceError(RTU, err))
-				}
-
-				time.Sleep(200 * time.Millisecond)
-
-				if err := sniffer.Start(settings.Port, settings.DecodeMode, settings.BaudRate, parity, settings.Databits, StopBits(settings.Stopbits)); err != nil {
-					sniffer.logger.BroadcastLog(err)
-					ws.Broadcast(wsModels.TextMessage, models.SetServiceError(RTU, err))
-				}
-			}()
+			sniffer.Restart(settings)
 		case RESETSTAT:
 			sniffer.counter = &models.Counter{}
 			sniffer.logger.BroadcastLog("reset statistic")
@@ -272,6 +263,11 @@ func (rtu *ModbusRTUSniffer) Start(portName string, decodeMode string, baudRate 
 			if n > 0 {
 				frameBuffer = append(frameBuffer, buf[:n]...)
 
+				if len(frameBuffer) > 512 {
+					frameBuffer = nil
+					continue
+				}
+
 				for len(frameBuffer) >= 4 {
 
 					consumed, validFrame := extractNextModbusFrame(frameBuffer)
@@ -299,6 +295,26 @@ func (rtu *ModbusRTUSniffer) Start(portName string, decodeMode string, baudRate 
 			}
 		}
 	}
+}
+
+func (rtu *ModbusRTUSniffer) Restart(s *models.Settings) {
+	var parity Parity
+	parity.SetParity(s.Parity)
+
+	go func() {
+		if rtu.state == CONNECT {
+			if err := rtu.Stop(); err != nil {
+				rtu.logger.BroadcastLog(err)
+				rtu.webSocket.Broadcast(wsModels.TextMessage, models.SetServiceError(RTU, err))
+			}
+
+			time.Sleep(200 * time.Millisecond)
+		}
+		if err := rtu.Start(s.Port, s.DecodeMode, s.BaudRate, parity, s.Databits, StopBits(s.Stopbits)); err != nil {
+			rtu.logger.BroadcastLog(err)
+			rtu.webSocket.Broadcast(wsModels.TextMessage, models.SetServiceError(RTU, err))
+		}
+	}()
 }
 
 func (rtu *ModbusRTUSniffer) Stop() error {
