@@ -1,0 +1,8 @@
+{
+  "gopls": {
+    "standaloneTags": [
+      "ibstool",
+      "discovery"
+    ]
+  }
+}
