@@ -1,4 +1,4 @@
-package udpDiscovery
+package udpdiscovery
 
 import (
 	"fmt"
@@ -6,7 +6,6 @@ import (
 	"net"
 	"os"
 	"strings"
-	"time"
 )
 
 var webPort = "8080" // Your web server port
@@ -17,7 +16,7 @@ const (
 )
 
 func UPDListener(l *logging.Logger) error {
-	fmt.Println(1)
+
 	if p := os.Getenv("PORT"); p != "" {
 		webPort = ":" + p
 	}
@@ -27,21 +26,17 @@ func UPDListener(l *logging.Logger) error {
 		return fmt.Errorf("error resolving udp address: %v\n", err)
 
 	}
-	fmt.Println(2)
 
 	conn, err := net.ListenUDP("udp", addr)
 	if err != nil {
 		return fmt.Errorf("error starting udp listener: %v\n", err)
 	}
-	fmt.Println(3)
 
 	defer conn.Close()
-	fmt.Println(4)
 
 	l.BroadcastLog(fmt.Sprintf("luckfox udp discovery listening on %s...\n", udpPort))
 
 	buf := make([]byte, 1024)
-	fmt.Println(5)
 
 	for {
 		n, remoteAddr, err := conn.ReadFromUDP(buf)
@@ -65,52 +60,49 @@ func UPDListener(l *logging.Logger) error {
 			}
 		}
 	}
-	fmt.Println(6)
-	return nil
-
 }
 
-func DiscoverDevices() (foundIp []string, err error) {
-	broadcastAddr, err := net.ResolveUDPAddr("udp", "255.255.255.255"+udpPort)
-	if err != nil {
-		return nil, fmt.Errorf("Resolve failed: %v\n", err)
+// func DiscoverDevices() (foundIp []string, err error) {
+// 	broadcastAddr, err := net.ResolveUDPAddr("udp", "255.255.255.255"+udpPort)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("Resolve failed: %v\n", err)
 
-	}
+// 	}
 
-	conn, err := net.ListenUDP("udp", nil)
-	if err != nil {
-		return nil, fmt.Errorf("Listen failed: %v\n", err)
+// 	conn, err := net.ListenUDP("udp", nil)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("Listen failed: %v\n", err)
 
-	}
-	defer conn.Close()
+// 	}
+// 	defer conn.Close()
 
-	// Send discovery broadcast
-	message := []byte("LUCKFOX_DISCOVER")
-	_, err = conn.WriteTo(message, broadcastAddr)
-	if err != nil {
-		return nil, fmt.Errorf("Broadcast failed: %v\n", err)
-	}
+// 	// Send discovery broadcast
+// 	message := []byte("LUCKFOX_DISCOVER")
+// 	_, err = conn.WriteTo(message, broadcastAddr)
+// 	if err != nil {
+// 		return nil, fmt.Errorf("Broadcast failed: %v\n", err)
+// 	}
 
-	fmt.Println("Broadcasting for Luckfox devices on local network...")
+// 	fmt.Println("Broadcasting for Luckfox devices on local network...")
 
-	// Set timeout for responses (3 seconds)
-	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+// 	// Set timeout for responses (3 seconds)
+// 	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
 
-	buf := make([]byte, 1024)
+// 	buf := make([]byte, 1024)
 
-	for {
-		n, remoteAddr, err := conn.ReadFromUDP(buf)
-		if err != nil {
-			// Timeout reached
-			break
-		}
+// 	for {
+// 		n, remoteAddr, err := conn.ReadFromUDP(buf)
+// 		if err != nil {
+// 			// Timeout reached
+// 			break
+// 		}
 
-		fmt.Printf("Found device at %s -> %s\n", remoteAddr.IP.String(), string(buf[:n]))
-		foundIp = append(foundIp, remoteAddr.IP.String())
-	}
+// 		fmt.Printf("Found device at %s -> %s\n", remoteAddr.IP.String(), string(buf[:n]))
+// 		foundIp = append(foundIp, remoteAddr.IP.String())
+// 	}
 
-	return
-}
+// 	return
+// }
 
 // Helper to get non-loopback IPv4 address
 func getLocalIP() string {

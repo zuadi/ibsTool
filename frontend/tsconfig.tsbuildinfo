@@ -1,0 +1,1 @@
+{"root":["./vite.config.ts","./src/app.tsx","./src/main.tsx","./wailsjs/go/models.ts","./wailsjs/go/udpdiscovery/app.d.ts","./wailsjs/runtime/runtime.d.ts"],"errors":true,"version":"6.0.3"}

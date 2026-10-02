@@ -1,16 +1,15 @@
-//go:build buildtool
+//go:build ibstool
 
 package main
 
 import (
-	"fmt"
 	"log"
 	"os"
 	"strconv"
 
 	"ibsTool/logging"
 	"ibsTool/routes"
-	"ibsTool/udpDiscovery"
+	"ibsTool/udpdiscovery"
 
 	"github.com/joho/godotenv"
 
@@ -40,13 +39,9 @@ func main() {
 
 	// start discover udp port
 	go func() {
-		fmt.Println(100)
-		if err := udpDiscovery.UPDListener(lgr); err != nil {
-			fmt.Println(66)
+		if err := udpdiscovery.UPDListener(lgr); err != nil {
 			lgr.BroadcastLog(err)
 		}
-		fmt.Println(200)
-
 	}()
 
 	lgr.BroadcastLog("start IBS-Tool")
